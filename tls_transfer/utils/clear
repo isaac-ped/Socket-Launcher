@@ -1,0 +1,4 @@
+#!/usr/bin/env python
+
+for _ in range(50):
+    print("")
