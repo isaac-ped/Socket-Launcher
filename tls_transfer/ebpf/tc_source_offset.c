@@ -47,6 +47,8 @@ static __be32 apply_offset(__be32 *orig, s64 off) {
     return *orig;
 }
 
+#define TCP_CSUM_OFF offsetof(struct fullhdr, tcp) + offsetof(struct tcphdr, check)
+
 int rewrite_ingress(struct __sk_buff *skb) {
     void *data = (void*)(long)skb->data;
     void *data_end = (void*)(long)skb->data_end;
@@ -113,16 +115,31 @@ int rewrite_ingress(struct __sk_buff *skb) {
 
         hdr->ip.saddr = new_addr;
         hdr->tcp.source = new_sport;
+        __be32 csum = hdr->tcp.check;
+
         bpf_l3_csum_replace(skb, offsetof(struct fullhdr, ip) + offsetof(struct iphdr, check),
                             orig_addr, new_addr, 4);
-        bpf_l4_csum_replace(skb, offsetof(struct fullhdr, tcp) + offsetof(struct tcphdr, check),
-                            orig_addr, new_addr, 4);
-        bpf_l4_csum_replace(skb, offsetof(struct fullhdr, tcp) + offsetof(struct tcphdr, check),
-                            orig_sport, new_sport, 2);
-        bpf_l4_csum_replace(skb, offsetof(struct fullhdr, tcp) + offsetof(struct tcphdr, check),
-                            orig_seq, new_seq, 4);
-        bpf_l4_csum_replace(skb, offsetof(struct fullhdr, tcp) + offsetof(struct tcphdr, check),
-                            orig_ack, new_ack, 4);
+
+        u64 rtn = bpf_l4_csum_replace(skb, TCP_CSUM_OFF,
+                            orig_addr, new_addr, BPF_F_PSEUDO_HDR | sizeof(new_addr));
+        if (rtn != 0) {
+            bpf_trace_printk("IN: Csum replace error: %d\n", (int)rtn);
+        }
+        rtn = bpf_l4_csum_replace(skb, TCP_CSUM_OFF,
+                            orig_sport, new_sport, sizeof(new_sport));
+        if (rtn != 0) {
+            bpf_trace_printk("IN: Csum replace error: %d\n", (int)rtn);
+        }
+        rtn = bpf_l4_csum_replace(skb, TCP_CSUM_OFF,
+                            orig_seq, new_seq, sizeof(new_seq));
+        if (rtn != 0) {
+            bpf_trace_printk("IN: Csum replace error: %d\n", (int)rtn);
+        }
+        rtn = bpf_l4_csum_replace(skb, TCP_CSUM_OFF,
+                            orig_ack, new_ack, sizeof(new_ack));
+        if (rtn != 0) {
+            bpf_trace_printk("IN: Csum replace error: %d\n", (int)rtn);
+        }
         bpf_trace_printk("IN:: Rewritten\n");
     } else {
         bpf_trace_printk("IN:: Not rewriting\n");
@@ -169,13 +186,13 @@ int rewrite_egress(struct __sk_buff *skb) {
         bpf_l3_csum_replace(skb, offsetof(struct fullhdr, ip) + offsetof(struct iphdr, check),
                             orig_addr, new_addr, 4);
         bpf_l4_csum_replace(skb, offsetof(struct fullhdr, tcp) + offsetof(struct tcphdr, check),
-                            orig_addr, new_addr, 4);
+                            orig_addr, new_addr, sizeof(new_addr) | BPF_F_PSEUDO_HDR);
         bpf_l4_csum_replace(skb, offsetof(struct fullhdr, tcp) + offsetof(struct tcphdr, check),
-                            orig_dport, new_dport, 2);
+                            orig_dport, new_dport, sizeof(new_dport));
         bpf_l4_csum_replace(skb, offsetof(struct fullhdr, tcp) + offsetof(struct tcphdr, check),
-                            orig_ack, new_ack, 4);
+                            orig_ack, new_ack, sizeof(new_ack));
         bpf_l4_csum_replace(skb, offsetof(struct fullhdr, tcp) + offsetof(struct tcphdr, check),
-                            orig_seq, new_seq, 4);
+                            orig_seq, new_seq, sizeof(new_seq));
 
         bpf_trace_printk("OUT:: Rewriting\n");
     } else {
