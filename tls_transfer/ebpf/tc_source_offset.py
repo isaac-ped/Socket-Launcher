@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import sys
 import ctypes as ct
 from pyroute2 import IPRoute
