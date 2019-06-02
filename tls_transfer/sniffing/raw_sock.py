@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 import socket
 from scapy.all import *
 
@@ -9,8 +10,11 @@ while True:
     pkt.show()
     chk1 = pkt['TCP'].chksum
     del pkt['TCP'].chksum
-    pkt2= IP(str(pkt))
+    del pkt[IP].chksum
+    pkt2= Ether(dst='00:00:00:00:00:bb', src='00:00:00:00:bb:bb') / IP(str(pkt))
+    pkt2.show()
 
     if chk1 != pkt2[TCP].chksum:
         print("NON MATCHING CHECKSUMS: %x %x" % (chk1,pkt2[TCP].chksum))
-
+    else:
+        print("MATCHING CHECKSUMS: %x %x" % (chk1, pkt2[TCP].chksum))
