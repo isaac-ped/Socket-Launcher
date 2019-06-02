@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 from scapy.all import *
 from pyroute2 import IPRoute
 import argparse
