@@ -34,6 +34,7 @@ class TransferSock(object):
         return self.sock.sendall(*args, **kwargs)
 
     def transfer(self, to = None):
+        print("Transferring")
         self.node.send_transfer(to, *self.peername)
 
     def fileno(self):

@@ -45,7 +45,7 @@ static int monitor_ingress(struct __sk_buff *skb) {
 
     struct fullhdr *hdr = data;
     if (data + sizeof(*hdr) > data_end) {
-        bpf_trace_printk("PM: Too small\b");
+        bpf_trace_printk("PM: Too small\n");
         return TC_ACT_OK;
     }
 
@@ -71,17 +71,19 @@ static int monitor_ingress(struct __sk_buff *skb) {
             .ack = ntohl(hdr->tcp.ack_seq)
         };
 
-        bpf_trace_printk("Notified\n");
 
         if (sock.ack == 0) {
+            bpf_trace_printk("PM: Notifying clear pool\n");
             clear_pool.perf_submit(skb, &sock, sizeof(sock));
         } else if (!hdr->tcp.fin && !hdr->tcp.rst) {
+            bpf_trace_printk("PM: Notifying add to pool\n");
             add_to_pool.perf_submit(skb, &sock, sizeof(sock));
         } else {
+            bpf_trace_printk("PM: Notifying of fin or rst\n");
             rm_from_pool.perf_submit(skb, &sock, sizeof(sock));
         }
     } else {
-        bpf_trace_printk("Port is %d, range is: %d-%d\n", port, pr->start, pr->stop);
+        bpf_trace_printk("PM: Port is %d, range is: %d-%d\n", port, pr->start, pr->stop);
     }
 
     return TC_ACT_OK;

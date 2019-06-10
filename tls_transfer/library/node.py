@@ -1,4 +1,4 @@
-from collections import defaultdict
+from collections import defaultdict, namedtuple
 import select
 import json
 import socket
@@ -11,25 +11,22 @@ class SocketDispatcher(object):
         self.listen_port = port
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        print("Binding socket dispatch to {}".format(port))
+        logging.info("Binding socket dispatcher to :%d", port)
         self.sock.bind(('', port))
         self.sock.listen(16)
         self.other_sockets = []
         self.poller = None
         self.running = True
+        self.connections = {}
+        self.poller = select.poll()
 
     def dispatch(self, cb, new_cb=None):
         logging.info("Listening on socket {}".format(self.sock.fileno()))
 
-        self.connections = {}
-        self.poller = select.poll()
         self.poller.register(self.sock, select.POLLIN)
-        for (socket, ip, port) in self.other_sockets:
-            self.poller.register(socket, select.POLLIN)
-            self.connections[socket.fileno()] = (socket, (ip, port))
 
         while self.running:
-            activity = self.poller.poll(1)
+            activity = self.poller.poll(.25)
             for conn in activity:
                 logging.debug("Activity on socket {}".format(conn[0]))
                 if conn[0] == self.sock.fileno():
@@ -44,21 +41,24 @@ class SocketDispatcher(object):
                         self.poller.unregister(conn[0])
 
     def add_socket(self, socket, ip, port):
-        self.other_sockets.append((socket, ip, port))
-        if self.poller is not None:
-            self.poller.register(socket, select.POLLIN)
-            self.connections[socket.fileno()] = (socket, (ip, port))
+        self.poller.register(socket, select.POLLIN)
+        self.connections[socket.fileno()] = (socket, (ip, port))
 
 
 class ConnectedNode(object):
+
+    DELIMITER = '~~'
+
+    Connection = namedtuple('NodeConnection', ['name', 'ip', 'port', 'socket'])
 
     def __init__(self, listen_port, name):
         self.sd = SocketDispatcher(listen_port)
         self.listen_port = listen_port
         self.name = name
         self.callbacks = defaultdict(list)
-        self.connections = {}
-        self.senders = {}
+
+        self.node_map = {}
+        self._socket_map = {}
 
         self.register_callback("hello", self._hello_cb)
         self.register_callback("hello_ack", self._hello_ack_cb)
@@ -72,36 +72,38 @@ class ConnectedNode(object):
         except:
             logging.error("Could not connect to {}:{}".format(ip, port))
             raise
-        self.send(sock, 'hello',
-                  port=self.listen_port)
+        self.send(sock, 'hello', port=self.listen_port)
         self.sd.add_socket(sock, ip, port)
 
-    def _hello_cb(self, sender, sock, addr, port):
-        logging.info("Got hello from {}:{}".format(sender, port))
-        self.connections[sender] = (sock, addr)
-        self.senders[sock] = sender
-        self.send(sender, 'hello_ack')
+    def get_connections(self):
+        return list(self.node_map.values())
 
-    def _hello_ack_cb(self, sender, sock, addr):
-        logging.info("Hello acked from {}".format(sender))
-        self.connections[sender] = (sock, addr)
-        self.senders[sock] = sender
+    def get_connection(self, name):
+        return self.node_map[name]
+
+    def update_node_connection(self, connection):
+        self.node_map[connection.name] = connection
+        self._socket_map[connection.socket] = connection
+
+    def _hello_cb(self, connection, port):
+        self.update_node_connection(connection)
+        self.send(connection, 'hello_ack')
+
+    def _hello_ack_cb(self, connection):
+        self.update_node_connection(connection)
 
     def register_callback(self, cmd, callback):
         logging.debug("Registered callback {} for command {}".format(callback.__name__, cmd))
         self.callbacks[cmd].append(callback)
 
-    def _callback(self, connection, addr):
-        logging.debug("Callback for addr {}".format(addr))
-
+    def _callback(self, socket, addr):
         try:
-            data = connection.recv(1024)
+            data = socket.recv(1024)
 
-            logging.debug("Received {}".format(data))
-            print("RECEIVED " + data)
+            logging.debug("Received '%s' from %s", data, addr)
 
             if data:
-                split_data = data.split("~~")
+                split_data = data.split(self.DELIMITER)
                 for data_item in split_data:
                     if len(data_item) == 0:
                         continue
@@ -113,30 +115,38 @@ class ConnectedNode(object):
 
                     try:
                         cmd = d['cmd']
-                        del d['cmd']
+
+                        conn = self.Connection(d['sender'], addr[0], addr[1], socket)
 
                         logging.info("Received {} from {}".format(cmd, d['sender']))
+
                         if cmd not in self.callbacks:
-                            logging.error("command {} unmapped".format(cmd))
+                            logging.error("command {} is not mapped to a callback".format(cmd))
+
                         for cb in self.callbacks[cmd]:
-                            logging.debug("Calling {}".format(cb.__name__))
-                            cb(sock = connection, addr=addr, **d)
+                            logging.debug("Calling callback %s for cmd %s", cb.__name__, cmd)
+                            cb(conn, *d['args'], **d['kwargs'])
                     except:
                         logging.error("Error callbacking")
                         traceback.print_exc()
                         raise
             else:
-                logging.info("{} received 0 bytes:  exiting".format(addr))
-                connection.close()
+                logging.info("%s received 0 bytes. Closing connection", addr)
+                socket.close()
                 return False
-        except:
-            logging.info("{} errored".format(addr))
+        except Exception as e:
+            logging.info("{} errored: {}".format(addr, e))
             traceback.print_exc()
-            if connection in self.senders:
-                sender = self.senders[connection]
-                del self.senders[connection]
-                del self.connections[sender]
-            connection.close()
+            if socket in self._socket_map:
+                conn = self._socket_map[socket]
+                del self._socket_map[socket]
+                del self.node_map[conn.name]
+
+                socket.close()
+                if conn.name == 'proxy':
+                    raise Exception("Proxy disconnected!")
+
+            socket.close()
 
             return False
 
@@ -146,19 +156,23 @@ class ConnectedNode(object):
     def stop(self):
         self.sd.running = False
 
-    def send(self, to, cmd, **kwargs):
-        kwargs['cmd'] = cmd
-        kwargs['sender'] = self.name
+    def send(self, to, cmd, *args, **kwargs):
 
-        print("Sending {} to {}".format(cmd, to))
-        if isinstance(to, (str, unicode)):
-            if to not in self.connections:
-                logging.error("Attempting to send to unknown host {}".format(to))
-                return # TODO: Exception?
-            logging.debug("Connection {} : {}".format(self.connections[to], self.connections[to][0]))
-            self.connections[to][0].sendall(json.dumps(kwargs) + "~~")
-        else:
-            to.sendall(json.dumps(kwargs)+"~~")
+        msg_d = dict(cmd=cmd, sender=self.name, args=args, kwargs=kwargs)
+        logging.debug("Sending cmd %s to socket", cmd)
+
+        if to in self.node_map:
+            to = self.node_map[to]
+            to.socket.sendall(json.dumps(msg_d) + self.DELIMITER)
+        elif to in self._socket_map:
+            to = self._socket_map[to]
+            to.socket.sendall(json.dumps(msg_d) + self.DELIMITER)
+        elif type(to) == self.Connection:
+            to.socket.sendall(json.dumps(msg_d) + self.DELIMITER)
+        elif type(to) == socket.socket:
+            to.sendall(json.dumps(msg_d) + self.DELIMITER)
+            return
+
 
 class ControlNode(ConnectedNode):
 
@@ -166,34 +180,29 @@ class ControlNode(ConnectedNode):
         super(ControlNode, self).__init__(listen_port, name)
         self.register_callback('hello', self.broadcast_join)
 
-    def broadcast_join(self, sender, sock, addr, port):
-        logging.info("Broadcasting join to {} nodes".format(len(self.connections) - 1))
-        for old_peer in self.connections:
-            if old_peer != sender:
-                self.send(old_peer, 'peer_join', peer=sender, peer_addr=(addr[0], port))
+    def broadcast_join(self, connection, port):
+        connections = self.get_connections()
+        if len(connections) == 1:
+            logging.info("First node joined")
+        else:
+            logging.info("Broadcasting join to %d nodes", len(connections) - 1)
+
+        for old_connection in connections:
+            if old_connection.name != connection.name:
+                self.send(old_connection, 'peer_join', peer=connection.name, peer_addr=(connection.ip, port))
 
 
 class PeerNode(ConnectedNode):
 
     def __init__(self, listen_port, name):
         super(PeerNode, self).__init__(listen_port, name)
-        self.peers = []
-        self.register_callback("peer_join", self.connect_to_peer)
-        self.register_callback("hello", self.peer_hello_cb)
-        self.register_callback("hello_ack", self.peer_hello_ack_cb)
+        self.register_callback("peer_join", self.peer_join_cb)
 
-    def add_peer(self, name):
-        logging.debug("Adding peer {}".format(name))
-        self.peers.append(name)
+    def get_peers(self):
+        return [c for c in self.get_connections() if c.name != 'proxy']
 
-    def peer_hello_cb(self, sender, sock, addr, port):
-        self.add_peer(sender)
-
-    def peer_hello_ack_cb(self, sender, sock, addr):
-        if sender != 'proxy':
-            self.add_peer(sender)
-
-    def connect_to_peer(self, sender, sock, addr, peer, peer_addr):
+    def peer_join_cb(self, connection, peer, peer_addr):
+        logging.debug("Attempting to connect to %s at %s:%d", peer, peer_addr[0], peer_addr[1])
         self.connect(*peer_addr)
 
     def connect_to_control(self, control_ip, control_port):

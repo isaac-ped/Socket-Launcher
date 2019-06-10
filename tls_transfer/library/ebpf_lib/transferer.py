@@ -85,9 +85,13 @@ class Transferer(object):
 
     def pop_connection(self, addr):
         logging.info("Getting connections for addr {}".format(addr))
+        if len(self.pools[addr]) == 0:
+            raise Exception("No connection pool available to addr {}".format(addr))
         port = random.choice(list(self.pools[addr].keys()))
-        while self.pools[addr][port] == False:
+        while self.pools[addr][port] is False:
             del self.pools[addr][port]
+            if len(self.pools[addr]) == 0:
+                raise Exception("No connection pool available to addr {}".format(addr))
             port = random.choice(list(self.pools[addr].keys()))
 
         seq, ack = self.pools[addr][port]
@@ -99,21 +103,20 @@ class Transferer(object):
 
     def clear_pool(self, cpu, data, size):
         ms = ct.cast(data, ct.POINTER(MonitoredSocket)).contents
-        print("Clearing {}:{}".format(int2ip(ms.addr), ms.port))
         try:
             del self.pools[int2ip(ms.addr)][ms.port]
+            logging.debug("Removed %s:%d from pool", int2ip(ms.addr), ms.port)
         except:
             pass
 
     def add_to_pool(self, cpu, data, size):
-        logging.debug("Maybe adding to pool")
         ms = ct.cast(data, ct.POINTER(MonitoredSocket)).contents
         if self.pools[int2ip(ms.addr)][ms.port]:
             logging.debug("Adding {}:{} to pool".format(int2ip(ms.addr),
                                                         ms.port))
             self.pools[int2ip(ms.addr)][ms.port] = (ms.seq, ms.ack)
         else:
-            print("Closed: {}:{}".format(int2ip(ms.addr), ms.port))
+            print("Already Closed: {}:{}".format(int2ip(ms.addr), ms.port))
 
     def rm_from_pool(self, cpu, data, size):
         ms = ct.cast(data, ct.POINTER(MonitoredSocket)).contents
