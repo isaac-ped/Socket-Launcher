@@ -12,6 +12,13 @@ def tcp_ping(ip, port, N=20, auto=True):
     try:
         for i in range(N):
             message = 'Ping: %d' % i
+            if auto:
+                time.sleep(1)
+            else:
+                x = raw_input()
+                if len(x) != 0:
+                    message = 'transfer'
+
             sock.sendall(message)
 
             rcvd = 0
@@ -21,11 +28,6 @@ def tcp_ping(ip, port, N=20, auto=True):
                 data = sock.recv(len(message))
                 rcvd += len(data)
                 print("Received %s" % data)
-
-            if auto:
-                time.sleep(1)
-            else:
-                raw_input()
 
     finally:
         print("Closing socket")
