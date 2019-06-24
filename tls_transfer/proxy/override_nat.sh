@@ -41,6 +41,8 @@ fi
 conntrack -L
 
 conntrack -D -s $SIP -p TCP --sport $SPORT
-conntrack -I -p TCP -t 1000 --src $SIP --dst $SELF --sport $SPORT --dport 12345 --src-nat $SELF --dst-nat $NEW_TO --state NONE
+#conntrack -D -s $NEW_TO -p TCP --dport $SPORT
+#conntrack -I -p TCP -t 1000 --src $SIP --dst $SELF --sport $SPORT --dport 12345 --src-nat $SELF --dst-nat $NEW_TO --state NONE
+conntrack -I -p TCP -t 1000 --src $NEW_TO --dst $SELF --sport 12345 --dport $SPORT --src-nat $SELF --dst-nat $SIP --state NONE
 
 conntrack -L
