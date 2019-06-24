@@ -216,7 +216,7 @@ static int handle_redirect(struct peer_info *peers, struct redirect_msg *msg, ch
 }
 
 
-void *peer_loop(void *varg) {
+static void *peer_loop(void *varg) {
     struct peer_loop_arg *arg = varg;
     int fd = arg->peers[arg->peer_id].fd;
 
