@@ -1,19 +1,23 @@
-TARGETS=repair_sender repair_receiver
-TARGETS+=tsproxy
-OBJS=tcp_repair.o tsproxy_lib.o tspeer_lib.o communication.o
-DEPS=tcp_repair.h
+CC?=gcc
 CFLAGS+=-Wall
 LFLAGS+=-lpthread
+
+TARGETS=repair_sender repair_receiver
+TARGETS+= tsproxy
+OBJS=tcp_repair.o tsproxy_lib.o tspeer_lib.o communication.o
+DEPS=tcp_repair.h
 
 all: ${TARGETS}
 
 clean:
-	rm ${TARGETS} ${OBJS}
+	rm -f ${TARGETS} ${OBJS}
 
 %.o: %.c ${DEPS} Makefile
-	gcc ${CFLAGS} -c $<
-
-%: %.c
+	$(CC) ${CFLAGS} -c $<
 
 ${TARGETS}: ${OBJS}
-	gcc ${CFLAGS} $@.c $^ -o $@ ${LFLAGS}
+
+% :: %.c
+	$(CC) ${CFLAGS} $< ${OBJS} -o $@ ${LFLAGS}
+
+.PHONY: all
