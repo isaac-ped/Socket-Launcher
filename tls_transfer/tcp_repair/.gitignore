@@ -1,0 +1,5 @@
+*.o
+repair_sender
+repair_receiver
+tspeer
+tsproxy
