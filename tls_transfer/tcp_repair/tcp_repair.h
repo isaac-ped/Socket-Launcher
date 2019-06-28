@@ -27,9 +27,9 @@ struct tcp_state {
     struct tcp_qstate snd;
 };
 
-int get_tcp_state(int fd, struct tcp_state *state);
+int get_tcp_state(int fd, struct tcp_state *state, int init);
 
-int set_tcp_state(int fd, struct tcp_state *state);
+int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr);
 
 void init_tcp_state(struct tcp_state *state);
 

@@ -3,7 +3,7 @@ CFLAGS+=-Wall
 LFLAGS+=-lpthread
 
 TARGETS=repair_sender repair_receiver
-TARGETS+= tsproxy
+TARGETS+=tsproxy tspeer
 OBJS=tcp_repair.o tsproxy_lib.o tspeer_lib.o communication.o
 DEPS=tcp_repair.h
 

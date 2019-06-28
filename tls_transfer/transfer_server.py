@@ -6,6 +6,7 @@ import select
 from library.tsock import TransferListenSocket as tsocket
 from library.tsock import set_params
 from threading import Thread
+import traceback
 
 def handle_activity(connection, cli_addr):
     try:
@@ -23,6 +24,8 @@ def handle_activity(connection, cli_addr):
             return False
     except:
         connection.close()
+        print("Exception encountered")
+        traceback.print_exc()
         return False
 
 def listen(ip, port):
@@ -50,6 +53,8 @@ def listen(ip, port):
                     if handle_activity(*conns[conn[0]]) == False:
                         poller.unregister(conn[0])
     except:
+        print("Exiting due to exception")
+        traceback.print_exc()
         sock.close()
 
 if __name__ == '__main__':

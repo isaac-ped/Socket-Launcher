@@ -6,10 +6,11 @@
 enum msg_type {
     HELLO,
     PEER_JOIN,
-    TRANSFER_SEQ,
+    INIT_XFER,
     BOUND,
-    TRANSFER_STATE,
-    REDIRECT
+    FINISH_XFER,
+    REDIRECT,
+    REDIRECTED
 };
 
 struct tsock_hdr {
@@ -23,10 +24,20 @@ struct hello_msg {
 };
 
 struct redirect_msg {
+    int new_fd;
     short n_sport;
     unsigned int orig_peer;
     unsigned int next_peer;
 };
+
+struct redirected_msg {
+    int new_fd;
+};
+
+struct xfer_msg {
+    int xfer_id;
+};
+
 
 int create_listening_fd(struct sockaddr_in *addr);
 int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_size);

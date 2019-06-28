@@ -20,5 +20,6 @@ int main(int argc, char **argv) {
         return -1;
     }
 
+    loginfo("Entering proxy ctl loop");
     return proxy_ctl_loop(&ctl_addr);
 }

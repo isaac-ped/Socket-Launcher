@@ -10,36 +10,46 @@
 #include <arpa/inet.h>
 #include <pthread.h>
 
-#define CONNTRACK_PATH "/usr/sbin/conntrack"
 
 static int get_ip_and_port(struct sockaddr_in *addr, char ip[16], char port[8]) {
-    if (inet_ntop(AF_INET, addr, ip, sizeof(*addr)) == NULL) {
+    if (inet_ntop(AF_INET, &addr->sin_addr, ip, 16) == NULL) {
         perror("inet_ntop");
         return -1;
     }
+    loginfo("IP ADDRESS IS %s", ip);
+
     snprintf(port, 8, "%d", ntohs(addr->sin_port));
     return 0;
 }
 
+#define IPTABLES_PATH "/sbin/iptables"
+
 static char *flush_cmd[] = {
-    "iptables", "-t", "nat", "-F"
+    "iptables", "-t", "nat", "-F", NULL
 };
 
 static int run_flush_cmd(void) {
     pid_t pid = fork();
     if (pid == 0) {
-        execv(CONNTRACK_PATH, flush_cmd);
+        execv(IPTABLES_PATH, flush_cmd);
         exit(127);
     } else {
-        waitpid(pid, 0, 0);
+        int wstatus;
+        waitpid(pid, &wstatus, 0);
+
+        if (WEXITSTATUS(wstatus)) {
+            logerr("Possible error executing flush cmd");
+        } else {
+            loginfo("Successfully executed flush cmd");
+        }
     }
     return 0;
 }
 
 static char* dnat_cmd[] = {
     "iptables", "-A", "PREROUTING", "-t", "nat", "-p", "tcp", "-j", "DNAT", "-m", "statistic",
-    "--node", "nth", "--packet", "0", "--dport", NULL, "-d", NULL, "--to-destination", NULL,
-    "--every", NULL, NULL 
+    "--mode", "nth", "--packet", "0", "--dport", NULL, "-d", NULL, "--to-destination", NULL,
+    "--every", NULL, NULL
 };
 
 static int run_dnat_cmd(char *app_port, char *proxy_ip, char *server_ip, char *n) {
@@ -51,17 +61,24 @@ static int run_dnat_cmd(char *app_port, char *proxy_ip, char *server_ip, char *n
         snprintf(server_addr, 32, "%s:%s", server_ip, app_port);
         dnat_cmd[20] = server_addr;
         dnat_cmd[22] = n;
-        execv(CONNTRACK_PATH, dnat_cmd);
+        execv(IPTABLES_PATH, dnat_cmd);
         exit(127);
     } else {
-        waitpid(pid, 0, 0);
+        int wstatus;
+        waitpid(pid, &wstatus, 0);
+
+        if (WEXITSTATUS(wstatus)) {
+            logerr("Possible error executing dnat cmd");
+        } else {
+            loginfo("Successfully executed dnat cmd");
+        }
     }
     return 0;
 }
 
 static char *snat_cmd[] = {
     "iptables", "-A", "POSTROUTING", "-t", "nat", "-p", "tcp", "-j", "SNAT", "-d", NULL,
-    "--dport", NULL, "--to_source", NULL, NULL
+    "--dport", NULL, "--to-source", NULL, NULL
 };
 
 static int run_snat_cmd(char *server_ip, char *app_port, char *proxy_ip) {
@@ -70,14 +87,23 @@ static int run_snat_cmd(char *server_ip, char *app_port, char *proxy_ip) {
         snat_cmd[10] = server_ip;
         snat_cmd[12] = app_port;
         snat_cmd[14] = proxy_ip;
-        execv(CONNTRACK_PATH, snat_cmd);
+        execv(IPTABLES_PATH, snat_cmd);
         exit(127);
     } else {
-        waitpid(pid, 0, 0);
+        int wstatus;
+        waitpid(pid, &wstatus, 0);
+
+        if (WEXITSTATUS(wstatus)) {
+            logerr("Possible error executing snat cmd");
+        } else {
+            loginfo("Successfully executed snat cmd");
+        }
     }
 
     return 0;
 }
+
+#define CONNTRACK_PATH "/usr/sbin/conntrack"
 
 static char* del_cmd[] = {
     "conntrack", "-D", "-s",  NULL, "-p", "TCP", "--sport", NULL, NULL
@@ -95,6 +121,24 @@ static int run_del_cmd(char *sip, char *sport) {
     }
     return 0;
 }
+
+static char* del_cmd2[] = {
+    "conntrack", "-D", "--dst-nat",  NULL, "-p", "TCP", "--dport", NULL, NULL
+};
+
+static int run_del_cmd2(char *sip, char *sport) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        del_cmd2[3] = sip;
+        del_cmd2[7] = sport;
+        execv(CONNTRACK_PATH, del_cmd2);
+        exit(127);
+    } else {
+        waitpid(pid, 0, 0);
+    }
+    return 0;
+}
+
 
 static char* ins_cmd[] = {
     "conntrack", "-I", "-p", "TCP", "-t", "1000", "--src", NULL,
@@ -120,11 +164,13 @@ static int run_insert_cmd(char *dst, char *self, char *dport, char *sport, char 
 }
 
 static const char* list_cmd_template = "conntrack -L --reply-src %s -p TCP --sport %s";
+static const char* list_cmd_template2 = "conntrack -L --src %s -p TCP --dport %s";
 #define MAX_LIST_CMDLEN (strlen(list_cmd_template) + 24)
-#define MAX_LIST_OUTLEN 2048
-static int get_sip(char *orig_ip, char *sport, char sip[16]) {
+#define MAX_LIST_OUTLEN 204
+
+static int run_list_cmd(const char *template, char *orig_ip, char *sport, char sip[16], int nsrc) {
     char cmd[MAX_LIST_CMDLEN];
-    snprintf(cmd, MAX_LIST_CMDLEN, list_cmd_template, orig_ip, sport);
+    snprintf(cmd, MAX_LIST_CMDLEN, template, orig_ip, sport);
 
     FILE *fp;
     if ((fp = popen(cmd, "r")) == NULL) {
@@ -135,13 +181,30 @@ static int get_sip(char *orig_ip, char *sport, char sip[16]) {
     char buf[MAX_LIST_OUTLEN];
     while (fgets(buf, MAX_LIST_OUTLEN, fp) != NULL) {
         char *srcstart = strstr(buf, "src=");
+        for (int i=0; i < nsrc; i++) {
+            srcstart = strstr(srcstart+1, "src=");
+        }
         if (srcstart != NULL) {
             char *srcend = strstr(srcstart, " ");
-            strncpy(sip, srcstart, (srcend - srcstart));
-            sip[srcend - srcstart] = '\0';
+            strncpy(sip, srcstart + 4, (srcend - srcstart - 4));
+            sip[srcend - srcstart - 4] = '\0';
             return 0;
         }
     }
+    return 1;
+}
+static int get_sip(char *orig_ip, char *sport, char sip[16]) {
+
+    if (run_list_cmd(list_cmd_template, orig_ip, sport, sip, 0) == 0) {
+        return 0;
+    }
+
+    if (run_list_cmd(list_cmd_template2, orig_ip, sport, sip, 1) == 0) {
+        loginfo("Got sip %s", sip);
+        return 1;
+    }
+
+
     logerr("Could not find sip in output");
     return -1;
 }
@@ -188,6 +251,7 @@ static int reset_nat(struct peer_info peers[MAX_PEERS], char *self_ip) {
 
 
 static int handle_redirect(struct peer_info *peers, struct redirect_msg *msg, char *self_ip) {
+    loginfo("Handling redirect");
     struct sockaddr_in *orig_addr = &peers[msg->orig_peer].app_addr;
     struct sockaddr_in *next_addr = &peers[msg->next_peer].app_addr;
 
@@ -202,12 +266,20 @@ static int handle_redirect(struct peer_info *peers, struct redirect_msg *msg, ch
     char sport[8];
     snprintf(sport, 8, "%d", ntohs(msg->n_sport));
     char sip[16];
-    if (get_sip(orig_ip, sport, sip)) {
+    int sip_num = get_sip(orig_ip, sport, sip);
+    if (sip_num < 0) {
         return -1;
     }
 
-    if (run_del_cmd(sip, sport)) {
-        return -1;
+    if (sip_num == 0) {
+        if (run_del_cmd(sip, sport)) {
+            return -1;
+        }
+    } else {
+        logerr("Running delcmd 2");
+        if (run_del_cmd2(sip, sport)) {
+            return -1;
+        }
     }
     if (run_insert_cmd(next_ip, self_ip, next_port, sport, sip)) {
         return -1;
@@ -226,22 +298,35 @@ static void *peer_loop(void *varg) {
     int err = 0;
     while (err == 0) {
         recvd = recv(fd, &hdr, sizeof(hdr), 0);
-        if (recvd != sizeof(hdr)) {
+        if (recvd < 0) {
             perror("Recv from peer");
+            break;
+        }
+        if (recvd != sizeof(hdr)) {
+            logerr("Recived %zd from peer instead of %zu", recvd, sizeof(hdr));
             break;
         }
         switch(hdr.type) {
             case REDIRECT:
-                recvd = recv(fd, &msg, sizeof(&msg), 0);
-                if (recvd != sizeof(msg)) {
+                recvd = recv(fd, &msg, sizeof(msg), 0);
+                if (recvd < 0) {
                     perror("Recv msg from peer");
                     err = 1;
+                    break;
+                }
+                if (recvd != sizeof(msg)) {
+                    logerr("Recived %zd from peer instead of %zu", recvd, sizeof(msg));
                     break;
                 }
                 if (handle_redirect(arg->peers, &msg, arg->self_ip)) {
                     logerr("Error handing redirect");
                     err = 1;
                     break;
+                }
+                struct redirected_msg newmsg = {msg.new_fd};
+                if (send_tsock_msg(fd, REDIRECTED, &newmsg, sizeof(newmsg))) {
+                    logerr("Error sending REDIRECTED");
+                    err = 1;
                 }
                 break;
             default:
@@ -289,11 +374,12 @@ int proxy_ctl_loop(struct sockaddr_in *ctl_addr) {
         }
 
         for (int i=0; i < MAX_PEERS; ++i) {
-            if (peers[msg.peer_id].fd) {
-                if (send_tsock_msg(peers[msg.peer_id].fd, PEER_JOIN, &msg, sizeof(msg))) {
-                    logerr("Forwarding PEER_JOIN");
+            if (peers[i].fd) {
+                if (send_tsock_msg(peers[i].fd, PEER_JOIN, &msg, sizeof(msg))) {
+                    logerr("Error Forwarding PEER_JOIN");
                     return -1;
                 }
+                loginfo("Forwarded PEER_JOIN");
             }
         }
 

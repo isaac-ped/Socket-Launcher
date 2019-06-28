@@ -78,7 +78,7 @@ int main(int argc, char **argv) {
 
             int new_fd = socket(AF_INET, SOCK_STREAM, 0);
 
-            if (set_tcp_state(new_fd, &state)) {
+            if (set_tcp_state(new_fd, &state, &addr.sin_addr)) {
                 logerr("Error setting tcp state");
                 return -1;
             }

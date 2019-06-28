@@ -14,7 +14,7 @@ int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_siz
     }
     return 0;
 }
-    
+
 
 int create_listening_fd(struct sockaddr_in *addr) {
 
@@ -30,7 +30,7 @@ int create_listening_fd(struct sockaddr_in *addr) {
     }
 
     if (bind(fd, (struct sockaddr*)addr, sizeof(*addr)) < 0) {
-        perror("bind");
+        perror("binding listen");
         return -1;
     }
 

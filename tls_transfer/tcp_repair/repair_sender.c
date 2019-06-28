@@ -33,7 +33,7 @@ void *socket_handler(void *vfd) {
 
     struct tcp_state state;
     init_tcp_state(&state);
-    get_tcp_state(fd, &state);
+    get_tcp_state(fd, &state, -1);
     print_tcp_state(&state);
     send_tcp_state(ctl_fd, &state);
 

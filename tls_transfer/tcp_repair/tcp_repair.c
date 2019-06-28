@@ -62,11 +62,13 @@ static int get_tcp_qstate(int fd, struct tcp_qstate *qstate, int qspec) {
     return 0;
 }
 
-int get_tcp_state(int fd, struct tcp_state *state) {
-    int opt = 1;
-    if (setsockopt(fd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
-        perror("Setting TCP_REPAIR");
-        return -1;
+int get_tcp_state(int fd, struct tcp_state *state, int init) {
+    if (init != 0) {
+        int opt = 1;
+        if (setsockopt(fd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
+            perror("Setting TCP_REPAIR");
+            return -1;
+        }
     }
     if (get_tcp_qstate(fd, &state->rcv, TCP_RECV_QUEUE)) {
         logerr("Getting TCP_RECV_QUEUE state");
@@ -87,8 +89,10 @@ int get_tcp_state(int fd, struct tcp_state *state) {
         return -1;
     }
     state->caddr.src_port = src_addr.sin_port;
-    if (close(fd)) {
-        perror("close");
+    if (init != 1) {
+        if (close(fd)) {
+            perror("close");
+        }
     }
     return 0;
 }
@@ -144,43 +148,44 @@ static int set_tcp_qstate_seq(int fd, struct tcp_qstate *qstate, int qspec) {
     return 0;
 }
 
-int set_tcp_state(int fd, struct tcp_state *state) {
+int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr) {
     int opt = 1;
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+        perror("Setting REUSEADDR");
+        return -1;
+    }
+    opt = 1;
     if (setsockopt(fd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
         perror("Setting TCP_REPAIR");
         return -1;
     }
     opt = 1;
 
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
-        perror("Setting REUSEADDR");
-        return -1;
-    }
 
-    struct sockaddr_in srcaddr = {
-        .sin_family = AF_INET,
-        .sin_port = state->caddr.src_port,
-    };
-    if (inet_aton("14.0.0.1", &srcaddr.sin_addr) == 0) {
-        perror("inet_aton");
-        return -1;
-    }
+    if (local_addr) {
+        struct sockaddr_in srcaddr = {
+            .sin_family = AF_INET,
+            .sin_port = state->caddr.src_port,
+            .sin_addr = *local_addr
+        };
+        if (bind(fd, (struct sockaddr*)&srcaddr, sizeof(srcaddr))) {
+            logerr("Could not bind to port: %d!", (int)htons(srcaddr.sin_port));
+            perror("bind repaired");
+            return -1;
+        }
 
-    state->rcv.hdr.seq -= state->rcv.hdr.readlen;
-    if (set_tcp_qstate_seq(fd, &state->rcv, TCP_RECV_QUEUE)) {
-        logerr("Error setting TCP_RECV_QUEUE iov");
-        return -1;
-    }
-    if (set_tcp_qstate_seq(fd, &state->snd, TCP_SEND_QUEUE)) {
-        logerr("Error setting TCP_SEND_QUEUE iov");
-        return -1;
-    }
-    if (bind(fd, (struct sockaddr*)&srcaddr, sizeof(srcaddr))) {
-        perror("bind repaired");
-        return -1;
-    }
-    if (connect(fd, (struct sockaddr*)&state->caddr.dst_addr, sizeof(state->caddr.dst_addr))) {
-        perror("Error connecting repaired socket");
+        state->rcv.hdr.seq -= state->rcv.hdr.readlen;
+        if (set_tcp_qstate_seq(fd, &state->rcv, TCP_RECV_QUEUE)) {
+            logerr("Error setting TCP_RECV_QUEUE iov");
+            return -1;
+        }
+        if (set_tcp_qstate_seq(fd, &state->snd, TCP_SEND_QUEUE)) {
+            logerr("Error setting TCP_SEND_QUEUE iov");
+            return -1;
+        }
+        if (connect(fd, (struct sockaddr*)&state->caddr.dst_addr, sizeof(state->caddr.dst_addr))) {
+            perror("Error connecting repaired socket");
+        }
     }
     if (set_tcp_qstate_iov(fd, &state->rcv, TCP_RECV_QUEUE)) {
         logerr("Error setting TCP_RECV_QUEUE iov");
@@ -190,17 +195,15 @@ int set_tcp_state(int fd, struct tcp_state *state) {
         logerr("Error setting TCP_SEND_QUEUE iov");
         return -1;
     }
-    printf("Sent send queue\n");
-            usleep(5e6);
-    opt = 0;
-    char buf[1024];
-    if (read(fd, buf, 1024) < 0) {
-        perror("Bad READ!");
+    /*
+    if (!local_addr) {
+        opt = 0;
+        if (setsockopt(fd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
+            perror("Unsetting TCP_REPAIR");
+            return -1;
+        }
     }
-    if (setsockopt(fd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
-        perror("Unsetting TCP_REPAIR");
-        return -1;
-    }
+    */
     return 0;
 }
 
