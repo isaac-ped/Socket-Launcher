@@ -1,13 +1,16 @@
 CC?=gcc
 CFLAGS+=-Wall
-LFLAGS+=-lpthread
+LFLAGS+=-lpthread -lzmq
 
 TARGETS=repair_sender repair_receiver
 TARGETS+=tsproxy tspeer
 OBJS=tcp_repair.o tsproxy_lib.o tspeer_lib.o communication.o
-DEPS=tcp_repair.h
+DEPS=tcp_repair.h communication.h
 
-all: ${TARGETS}
+XDP_TARGETS=tsproxy_xdp
+XDP_OBJS=tcp_repair.o tsproxy_xdp_lib.o communication.o
+
+all: ${TARGETS} ${XDP_TARGETS}
 
 clean:
 	rm -f ${TARGETS} ${OBJS}
@@ -16,6 +19,9 @@ clean:
 	$(CC) ${CFLAGS} -c $<
 
 ${TARGETS}: ${OBJS}
+
+${XDP_TARGETS}: tsproxy.c ${XDP_OBJS}
+	$(CC) ${CFLAGS} $< ${XDP_OBJS} -o $@ ${LFLAGS}
 
 % :: %.c
 	$(CC) ${CFLAGS} $< ${OBJS} -o $@ ${LFLAGS}

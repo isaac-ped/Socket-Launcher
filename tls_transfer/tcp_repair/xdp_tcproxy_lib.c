@@ -307,7 +307,7 @@ static void *peer_loop(void *varg) {
             break;
         }
         switch(hdr.type) {
-            case REDIR:
+            case REDIRECT:
                 recvd = recv(fd, &msg, sizeof(msg), 0);
                 if (recvd < 0) {
                     perror("Recv msg from peer");
@@ -324,7 +324,7 @@ static void *peer_loop(void *varg) {
                     break;
                 }
                 struct redirected_msg newmsg = {msg.new_fd};
-                if (send_tsock_msg(fd, REDIRECTED, &newmsg, sizeof(newmsg), NULL)) {
+                if (send_tsock_msg(fd, REDIRECTED, &newmsg, sizeof(newmsg))) {
                     logerr("Error sending REDIRECTED");
                     err = 1;
                 }
@@ -375,7 +375,7 @@ int proxy_ctl_loop(struct sockaddr_in *ctl_addr) {
 
         for (int i=0; i < MAX_PEERS; ++i) {
             if (peers[i].fd) {
-                if (send_tsock_msg(peers[i].fd, PEER_JOIN, &msg, sizeof(msg), NULL)) {
+                if (send_tsock_msg(peers[i].fd, PEER_JOIN, &msg, sizeof(msg))) {
                     logerr("Error Forwarding PEER_JOIN");
                     return -1;
                 }

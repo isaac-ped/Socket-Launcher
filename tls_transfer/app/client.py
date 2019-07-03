@@ -4,30 +4,33 @@ import sys
 import time
 from threading import Thread
 
-def tcp_ping(ip, port, N=20, auto=True):
+def tcp_ping(ip, port, N=20, auto=True, reps=1):
     sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
 
     sock.connect((ip, port))
 
     try:
         for i in range(N):
-            message = 'Ping: %d' % i
-            if auto:
-                time.sleep(1)
-            else:
+            expected = 0
+
+            for _ in range(reps):
+                message = 'Ping: %d' % i
+
+                sock.sendall(message)
+
+                expected += len(message)
+            if not auto:
                 x = raw_input()
-                if len(x) != 0:
-                    message = 'transfer'
-
-            sock.sendall(message)
-
+            else:
+                time.sleep(.01)
             rcvd = 0
-            expected = len(message)
 
             while rcvd < expected:
-                data = sock.recv(len(message))
+                data = sock.recv(expected)
                 rcvd += len(data)
                 print("Received %s" % data)
+    except Exception as e:
+        print("Got exception:", e)
 
     finally:
         print("Closing socket")
@@ -40,11 +43,11 @@ def many_pings(ip, port, n, n_per=20):
         tcp_ping(ip, port, n_per)
         exit(0)
     if n == -1:
-        tcp_ping(ip, port, 1000, False)
+        tcp_ping(ip, port, 1000, False, 1)
 
     threads = []
     for i in range(n):
-        threads.append(Thread(target=tcp_ping, args=(ip, port, n_per)))
+        threads.append(Thread(target=tcp_ping, args=(ip, port, n_per, 10)))
         threads[-1].start()
 
     for t in threads:

@@ -1,16 +1,33 @@
 #include "communication.h"
+#include "logging.h"
 
 #include <stdio.h>
+#include <pthread.h>
 
-int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_size) {
+int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_size,
+                   pthread_mutex_t *mutex) {
+    if (mutex) {
+        loginfo("Locking mutex");
+        if (pthread_mutex_lock(mutex)) {
+            perror("mutex lock");
+        }
+    }
     struct tsock_hdr hdr = {type};
     if (send(fd, &hdr, sizeof(hdr), 0) != sizeof(hdr)) {
         perror("Sending hdr");
         return -1;
     }
+
+    loginfo("Send to %d", fd);
     if (send(fd, payload, payload_size, 0) != payload_size) {
         perror("Sending payload");
         return -1;
+    }
+    if (mutex) {
+        loginfo("Unlocking mutex");
+        if (pthread_mutex_unlock(mutex)) {
+            perror("mutex unlock");
+        }
     }
     return 0;
 }

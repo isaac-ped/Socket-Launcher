@@ -51,8 +51,11 @@ static int get_tcp_qstate(int fd, struct tcp_qstate *qstate, int qspec) {
         return -1;
     }
     if ((qstate->hdr.readlen = recvqmsg(fd, qstate->msg_iov, qstate->hdr.msg_iovlen)) == -1 ) {
+        logerr("recvqmsg");
         return -1;
     }
+    loginfo("Sent qlen %zu", qstate->hdr.readlen);
+
     qstate->msg_iov[0].iov_len =  qstate->hdr.readlen;
     socklen_t seqlen = sizeof(qstate->hdr.seq);
     if (getsockopt(fd, SOL_TCP, TCP_QUEUE_SEQ, &qstate->hdr.seq, &seqlen)) {
@@ -74,10 +77,12 @@ int get_tcp_state(int fd, struct tcp_state *state, int init) {
         logerr("Getting TCP_RECV_QUEUE state");
         return -1;
     }
+
     if (get_tcp_qstate(fd, &state->snd, TCP_SEND_QUEUE)) {
         logerr("Getting TCP_SEND_QUEUE state");
         return -1;
     }
+
     socklen_t socklen = sizeof(state->caddr.dst_addr);
     if (getpeername(fd, (struct sockaddr*)&state->caddr.dst_addr, &socklen)) {
         perror("Getting peer name");
@@ -148,6 +153,15 @@ static int set_tcp_qstate_seq(int fd, struct tcp_qstate *qstate, int qspec) {
     return 0;
 }
 
+int activate_socket(int fd) {
+    int opt = 0;
+    if (setsockopt(fd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
+        perror("Unsetting TCP_REPAIR");
+        return -1;
+    }
+    return 0;
+}
+
 int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr) {
     int opt = 1;
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
@@ -161,49 +175,39 @@ int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr) {
     }
     opt = 1;
 
-
-    if (local_addr) {
-        struct sockaddr_in srcaddr = {
-            .sin_family = AF_INET,
-            .sin_port = state->caddr.src_port,
-            .sin_addr = *local_addr
-        };
-        if (bind(fd, (struct sockaddr*)&srcaddr, sizeof(srcaddr))) {
-            logerr("Could not bind to port: %d!", (int)htons(srcaddr.sin_port));
-            perror("bind repaired");
-            return -1;
-        }
-
-        state->rcv.hdr.seq -= state->rcv.hdr.readlen;
-        if (set_tcp_qstate_seq(fd, &state->rcv, TCP_RECV_QUEUE)) {
-            logerr("Error setting TCP_RECV_QUEUE iov");
-            return -1;
-        }
-        if (set_tcp_qstate_seq(fd, &state->snd, TCP_SEND_QUEUE)) {
-            logerr("Error setting TCP_SEND_QUEUE iov");
-            return -1;
-        }
-        if (connect(fd, (struct sockaddr*)&state->caddr.dst_addr, sizeof(state->caddr.dst_addr))) {
-            perror("Error connecting repaired socket");
-        }
+    struct sockaddr_in srcaddr = {
+        .sin_family = AF_INET,
+        .sin_port = state->caddr.src_port,
+        .sin_addr = *local_addr
+    };
+    if (bind(fd, (struct sockaddr*)&srcaddr, sizeof(srcaddr))) {
+        logerr("Could not bind to port: %d!", (int)htons(srcaddr.sin_port));
+        perror("bind repaired");
+        return -1;
     }
+
+    state->rcv.hdr.seq -= state->rcv.hdr.readlen;
+    if (set_tcp_qstate_seq(fd, &state->rcv, TCP_RECV_QUEUE)) {
+        logerr("Error setting TCP_RECV_QUEUE iov");
+        return -1;
+    }
+    if (set_tcp_qstate_seq(fd, &state->snd, TCP_SEND_QUEUE)) {
+        logerr("Error setting TCP_SEND_QUEUE iov");
+        return -1;
+    }
+    if (connect(fd, (struct sockaddr*)&state->caddr.dst_addr, sizeof(state->caddr.dst_addr))) {
+        perror("Error connecting repaired socket");
+    }
+
     if (set_tcp_qstate_iov(fd, &state->rcv, TCP_RECV_QUEUE)) {
         logerr("Error setting TCP_RECV_QUEUE iov");
         return -1;
     }
+    /*
     if (set_tcp_qstate_iov(fd, &state->snd, TCP_SEND_QUEUE)) {
         logerr("Error setting TCP_SEND_QUEUE iov");
         return -1;
-    }
-    /*
-    if (!local_addr) {
-        opt = 0;
-        if (setsockopt(fd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
-            perror("Unsetting TCP_REPAIR");
-            return -1;
-        }
-    }
-    */
+    }*/
     return 0;
 }
 
@@ -276,10 +280,13 @@ static int recv_tcp_qstate(int fd, struct tcp_qstate *qstate) {
     }
 
     qstate->msg_iov[0].iov_len = qstate->hdr.readlen;
+    loginfo("Readlen: %zu", qstate->hdr.readlen);
 
-    if ((rcvd = readv(fd, qstate->msg_iov, qstate->hdr.msg_iovlen)) < 0) {
-        perror("Error readv'ing");
-        return -1;
+    if (qstate->msg_iov[0].iov_len > 0) {
+        if ((rcvd = readv(fd, qstate->msg_iov, qstate->hdr.msg_iovlen)) < 0) {
+            perror("Error readv'ing");
+            return -1;
+        }
     }
     return 0;
 }

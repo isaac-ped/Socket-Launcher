@@ -28,6 +28,7 @@ struct tsock_server {
     int max_active_xfer;
     int epollfd;
     bool running;
+    pthread_mutex_t mutex;
 };
 
 int tx_tsock(int fd, int peerfd);

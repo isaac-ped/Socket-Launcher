@@ -6,6 +6,7 @@
 #include <stdlib.h>
 #include <inttypes.h>
 #include <pthread.h>
+#include <netinet/tcp.h>
 
 #define SHOW_USAGE(err) logerr(err "\nUsage: %s APP_PORT PROXY_IP:PORT CTL_IP:PORT ID", argv[0]);
 
@@ -32,14 +33,13 @@ void* read_loop(void *vfd) {
         printf("Received: %s\n", buf);
         send(fd, buf, recvd, 0);
     }
-    int newid = local_id + 1;
-    if (newid > 2)
-        newid = 1;
+    //usleep(1e6);
+    int newid = (local_id + 1) % 2;
     tsock_transfer(tss, newid, fd);
     return NULL;
 }
 
-#define N_THREADS 16
+#define N_THREADS 32
 
 int main(int argc, char **argv) {
     if (argc != 5) {
@@ -113,6 +113,8 @@ int main(int argc, char **argv) {
                 --i;
                 continue;
             }
+            int val = 1;
+            //setsockopt(new_fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
 
             int rtn = pthread_create(&threads[i], NULL, read_loop, (void*)(intptr_t)new_fd);
             if (rtn < 0) {
