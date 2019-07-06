@@ -1,10 +1,10 @@
 CC?=gcc
-CFLAGS+=-Wall
+CFLAGS+=-Wall -g
 LFLAGS+=-lpthread -lzmq
 
 TARGETS=repair_sender repair_receiver
-TARGETS+=tsproxy tspeer
-OBJS=tcp_repair.o tsproxy_lib.o tspeer_lib.o communication.o
+TARGETS+=tspeer
+OBJS=tcp_repair.o tsproxy_lib.o tspeer_lib.o communication.o file-db-pool.o
 DEPS=tcp_repair.h communication.h
 
 XDP_TARGETS=tsproxy_xdp

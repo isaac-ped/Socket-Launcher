@@ -70,19 +70,19 @@ class Proxy(object):
         new_outflow = Flow(next.addr, next.port, ct.c_uint16(n_sport))
         try:
             client = self.b['outflows'][orig_outflow]
-            del self.b['outflows'][orig_outflow]
+            self.b['outflows'][orig_outflow].inactive = 1
         except KeyError:
             print("Could not find outflow")
             return
 
-        print("Attempting to replace %d:%d->%d" % (client.addr, socket.ntohs(client.port), socket.ntohs(orig.port)))
+        print("Attempting to replace %d:%d->%d %d=>%d" % (client.addr, socket.ntohs(client.port), socket.ntohs(orig.port), orig_id, next_id))
 
         inflow = Flow(client.addr, client.port, orig.port)
 
         if inflow not in self.b['inflows']:
             print("NOT REPLACING WHICH IS WEIRD")
 
-        self.b['inflows'][inflow] = ct.c_int(-1 * next_id)
+        self.b['inflows'][inflow] = ct.c_int(-1 * (next_id + 1))
         self.b['outflows'][new_outflow] = client
 
     def add_port(self, port):

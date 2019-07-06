@@ -41,7 +41,7 @@ int create_listening_fd(struct sockaddr_in *addr) {
         return -1;
     }
     int opt = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt))) {
         perror("REUSEADDR");
         return -1;
     }

@@ -6,11 +6,9 @@
 enum msg_type {
     HELLO,
     PEER_JOIN,
-    XFER,
-    XFER_DONE,
-    REDIR,
-    REDIRECTED,
-    UNDROP
+    REDIRECT,
+    DO_XFER,
+    XFER
 };
 
 struct tsock_hdr {
@@ -24,7 +22,7 @@ struct hello_msg {
 };
 
 struct redirect_msg {
-    int new_fd;
+    int old_fd;
     short n_sport;
     unsigned int orig_peer;
     unsigned int next_peer;

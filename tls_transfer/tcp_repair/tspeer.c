@@ -1,5 +1,6 @@
 #include "logging.h"
 #include "tspeer_lib.h"
+#include "file-db-pool.h"
 
 #include <unistd.h>
 #include <string.h>
@@ -13,7 +14,7 @@
 static struct tsock_server *tss;
 static int local_id;
 
-void* read_loop(void *vfd) {
+void read_loop(void *vfd, void *unused) {
     int fd = (intptr_t)vfd;
 
     char buf[1024];
@@ -22,12 +23,12 @@ void* read_loop(void *vfd) {
         if (recvd < 0) {
             perror("Recv from client");
             close(fd);
-            return NULL;
+            return;
         }
         if (recvd == 0) {
             loginfo("Client disconnect");
             close(fd);
-            return NULL;
+            return;
         }
         buf[recvd] = '\0';
         printf("Received: %s\n", buf);
@@ -36,7 +37,7 @@ void* read_loop(void *vfd) {
     //usleep(1e6);
     int newid = (local_id + 1) % 2;
     tsock_transfer(tss, newid, fd);
-    return NULL;
+    return;
 }
 
 #define N_THREADS 32
@@ -97,31 +98,20 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    pthread_t threads[N_THREADS] = {};
+    struct thread_pool *tp = init_thread_pool(50, read_loop, NULL);
+
     while (1) {
-        for (int i=0; i < N_THREADS; ++i) {
-            if (threads[i]) {
-                pthread_join(threads[i], NULL);
-            }
-
-            int new_fd = tsock_accept(server, 500);
-            if (new_fd < 0) {
-                logerr("Error accepting");
-                return -1;
-            }
-            if (new_fd == 0) {
-                --i;
-                continue;
-            }
-            int val = 1;
-            //setsockopt(new_fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val));
-
-            int rtn = pthread_create(&threads[i], NULL, read_loop, (void*)(intptr_t)new_fd);
-            if (rtn < 0) {
-                perror("Pthread_create");
-                return -1;
-            }
+        int new_fd = tsock_accept(server, 500);
+        if (new_fd < 0) {
+            logerr("Error accepting");
+            return -1;
         }
+        if (new_fd == 0) {
+            continue;
+        }
+
+        tp_enqueue(tp, (void*)(intptr_t)new_fd);
+
     }
 
     join_tsock_server(server);

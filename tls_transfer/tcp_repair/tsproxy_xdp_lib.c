@@ -57,7 +57,7 @@ static int add_peer(struct sockaddr_in *app_addr, int peer_id) {
     return 0;
 }
 
-#define  REDIRECT_TEMPLATE "{\"type\": \"redirect\", \"orig_id\": %d, \"next_id\": %d, \"n_sport\": %d}"
+#define  REDIRECT_TEMPLATE "{\"type\": \"redirect\", \"orig_id\": %d, \"next_id\": %d, \"n_sport\": %hu}"
 
 
 static int handle_redirect(struct peer_info *peers, struct redirect_msg *msg, char *self_ip,
@@ -76,29 +76,18 @@ static int handle_redirect(struct peer_info *peers, struct redirect_msg *msg, ch
 
     loginfo("Proxy responded to redirect: %s", redirect_msg);
 
-    struct undrop_msg undrop = {
-        .src_addr = {
-            .sin_family = AF_INET,
-            .sin_addr = {self_ip_int},
-            .sin_port = msg->n_sport
-        },
-        .dst_port = peers[msg->orig_peer].app_addr.sin_port
-    };
-    loginfo("Sending UNDROP to %d", msg->orig_peer);
-    if (send_tsock_msg(peers[msg->orig_peer].fd, UNDROP, &undrop, sizeof(undrop), NULL)) {
-        logerr("Error sending UNDROP");
+    if (msg->orig_peer > MAX_PEERS) {
+        logerr("Peer number too high!\n");
         return -1;
     }
-    loginfo("Sending REDIRECTED to %d", msg->orig_peer);
-    struct redirected_msg newmsg = {msg->new_fd};
-    if (send_tsock_msg(peers[msg->next_peer].fd, REDIRECTED, &newmsg, sizeof(newmsg), NULL)) {
-        logerr("Error sending REDIRECTED");
+
+    if (send_tsock_msg(peers[msg->orig_peer].fd, DO_XFER, msg, sizeof(*msg), NULL)) {
+        logerr("Error sending DO_XFER");
         return -1;
     }
 
     return 0;
 }
-
 
 static void *peer_loop(void *varg) {
     struct peer_loop_arg *arg = varg;
@@ -119,7 +108,7 @@ static void *peer_loop(void *varg) {
             break;
         }
         switch(hdr.type) {
-            case REDIR:
+            case REDIRECT:
                 recvd = recv(fd, &msg, sizeof(msg), 0);
                 if (recvd < 0) {
                     perror("Recv msg from peer");

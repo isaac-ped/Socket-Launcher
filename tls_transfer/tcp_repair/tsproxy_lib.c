@@ -307,7 +307,7 @@ static void *peer_loop(void *varg) {
             break;
         }
         switch(hdr.type) {
-            case REDIR:
+            case REDIRECT:
                 recvd = recv(fd, &msg, sizeof(msg), 0);
                 if (recvd < 0) {
                     perror("Recv msg from peer");
@@ -323,9 +323,8 @@ static void *peer_loop(void *varg) {
                     err = 1;
                     break;
                 }
-                struct redirected_msg newmsg = {msg.new_fd};
-                if (send_tsock_msg(fd, REDIRECTED, &newmsg, sizeof(newmsg), NULL)) {
-                    logerr("Error sending REDIRECTED");
+                if (send_tsock_msg(fd, DO_XFER, &msg, sizeof(msg), NULL)) {
+                    logerr("Error sending DO_XFER");
                     err = 1;
                 }
                 break;

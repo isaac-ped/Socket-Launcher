@@ -11,6 +11,8 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <zmq.h>
+#include <netinet/tcp.h>
+#include <netinet/ip.h>
 
 
 static void *ctx;
@@ -235,85 +237,21 @@ void join_tsock_server(struct tsock_server *server) {
     pthread_join(server->proxy_thread, NULL);
     free(server);
 }
-
-static int handle_xfer_done(struct tsock_peer *peer, struct tsock_server *server) {
-    loginfo("Handling xfer_done");
-    int peer_fd = peer->peer_fd;
-    struct xfer_msg msg;
-    ssize_t recvd = recv(peer_fd, &msg, sizeof(msg), 0);
-    if (recvd < 0) {
-        perror("Recv msg from peer");
-        return -1;
-    }
-
-    int xfer_fd = server->active_transfers[msg.xfer_id];
-
-    if (close(xfer_fd)) {
-        logerr("Error closing transferred fd");
-        //return -1;
-    }
-    return 0;
-}
-
 static int handle_xfer(struct tsock_peer *peer,
-                       struct sockaddr_in *app_addr,
-                       int proxy_fd, int local_id,
                        struct tsock_server *server) {
     loginfo("Handling init xfer");
     int peer_fd = peer->peer_fd;
-    struct xfer_msg msg;
-    ssize_t recvd = recv(peer_fd, &msg, sizeof(msg), 0);
-    if (recvd < 0) {
-        perror("Recv msg from peer");
-        return -1;
-    }
     int newfd = socket(AF_INET, SOCK_STREAM, 0);
-    peer->active_transfers[msg.xfer_id] = newfd;
     struct tcp_state state;
     init_tcp_state(&state);
     if (recv_tcp_state(peer_fd, &state)) {
         logerr("Error receiving tcp state");
         return -1;
     }
-
-    if (set_tcp_state(newfd, &state, &app_addr->sin_addr)) {
+    if (set_tcp_state(newfd, &state, &server->app_addr.sin_addr)) {
         logerr("Error setting tcp state");
         return -1;
     }
-
-    int rtn = send_tsock_msg(peer_fd, XFER_DONE, &msg, sizeof(msg), &server->mutex);
-    if (rtn < 0) {
-        logerr("Error sending XFER_DONE");
-        return -1;
-    }
-
-    struct redirect_msg re_msg = {
-        .new_fd = newfd,
-        .n_sport = state.caddr.dst_addr.sin_port,
-        .orig_peer = peer->peer_id,
-        .next_peer = local_id
-    };
-
-    rtn = send_tsock_msg(proxy_fd, REDIR, &re_msg, sizeof(re_msg), NULL);
-    if (rtn < 0) {
-        logerr("Error sending REDIRECT msg");
-        return -1;
-    }
-
-    return 0;
-}
-#include <netinet/tcp.h>
-
-static int handle_redirected(int peer_fd) {
-    struct redirected_msg msg;
-    ssize_t recvd = recv(peer_fd, &msg, sizeof(msg), 0);
-    if (recvd != sizeof(msg)) {
-        perror("Receiving redirected");
-        return -1;
-    }
-    int newfd = msg.new_fd;
-
-    loginfo("Handling redirected");
     int opt = 0;
     if (setsockopt(newfd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
         perror("Unsetting TCP_REPAIR");
@@ -322,101 +260,8 @@ static int handle_redirected(int peer_fd) {
     return newfd;
 }
 
-#define XBLOCK_TEMPLATE "{\"type\": \"%s\", \"src_ip\": \"%s\", \"src_port\": %s, " \
-                       "\"dst_port\": %d}"
+static pthread_mutex_t proxy_mutex = PTHREAD_MUTEX_INITIALIZER;
 
-static int get_ip_and_port(struct sockaddr_in *addr, char ip[16], char port[8]) {
-    if (inet_ntop(AF_INET, &addr->sin_addr, ip, 16) == NULL) {
-        perror("inet_ntop");
-        return -1;
-    }
-    loginfo("IP ADDRESS IS %s", ip);
-
-    snprintf(port, 8, "%d", ntohs(addr->sin_port));
-    return 0;
-}
-
-static pthread_mutex_t zmq_mutex = PTHREAD_MUTEX_INITIALIZER;
-
-static int send_xdrop(char *type, struct sockaddr_in *src, uint16_t dst_port) {
-    char ip[16], port[8];
-    if (get_ip_and_port(src, ip, port)) {
-        logerr("Error getting ip + port");
-        return -1;
-    }
-
-    char block_msg[1024];
-    size_t n = snprintf(block_msg, sizeof(block_msg), XBLOCK_TEMPLATE,
-                        type, ip, port, (int)(ntohs(dst_port)));
-
-    pthread_mutex_lock(&zmq_mutex);
-    zmq_send(requester, block_msg, n, 0);
-    int size = zmq_recv(requester, block_msg, 1024, 0);
-    pthread_mutex_unlock(&zmq_mutex);
-    block_msg[size] = '\0';
-    loginfo("Proxy responded to %s msg: %s", type, block_msg);
-    return 0;
-}
-
-
-static int handle_undrop(int peer_fd) {
-    loginfo("Handling UNDROP");
-    struct undrop_msg msg;
-    ssize_t recvd = recv(peer_fd, &msg, sizeof(msg), 0);
-    if (recvd != sizeof(msg)) {
-        perror("Receiving undrop");
-        return -1;
-    }
-    return send_xdrop("undrop", &msg.src_addr, msg.dst_port);
-}
-
-static int start_drop(struct sockaddr_in *src, uint16_t dst_port) {
-    return send_xdrop("drop", src, dst_port);
-}
-
-/*
-static int handle_finish_xfer(struct tsock_peer *peer, int proxy_fd, int local_id) {
-    loginfo("Handling finish xfer");
-    int peer_fd = peer->peer_fd;
-    struct xfer_msg msg;
-    ssize_t recvd = recv(peer_fd, &msg, sizeof(msg), 0);
-    if (recvd < 0) {
-        perror("Recv finish from peer");
-        return -1;
-    }
-    int newfd = peer->active_transfers[msg.xfer_id];
-    if (newfd <= 0) {
-        logerr("received finish for unstarted xfer");
-        return -1;
-    }
-    struct tcp_state state;
-    init_tcp_state(&state);
-    if (recv_tcp_state(peer_fd, &state)) {
-        logerr("Error receiving tcp state");
-        return -1;
-    }
-
-    struct redirect_msg re_msg = {
-        .new_fd = newfd,
-        .n_sport = state.caddr.dst_addr.sin_port,
-        .orig_peer = peer->peer_id,
-        .next_peer = local_id
-    };
-    int rtn = send_tsock_msg(proxy_fd, REDIRECT, &re_msg, sizeof(re_msg));
-    if (rtn < 0) {
-        logerr("Error sending REDIRECT msg");
-        return -1;
-    }
-
-    if (set_tcp_state(newfd, &state, NULL)) {
-        logerr("Error finishing setting tcp state");
-        return -1;
-    }
-    printf("Finished handling tcp state\n");
-
-    return 0;
-}
-*/
 int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
     loginfo("Transferring socket");
     struct tsock_peer *peer = &server->peers[peer_id];
@@ -424,40 +269,58 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
         logerr("Peer %d DNE", peer_id);
         return -1;
     }
-    struct sockaddr_in src_addr;
-    socklen_t socklen = sizeof(src_addr);
-    if (getpeername(fd, (struct sockaddr*)&src_addr, &socklen) != 0) {
-        perror("Getting peername");
-        return -1;
-    }
-    struct sockaddr_in dst_addr;
-    if (getsockname(fd, (struct sockaddr*)&dst_addr, &socklen) != 0) {
-        perror("Getting sockname");
+
+    struct sockaddr_in peer_addr;
+    socklen_t socklen = sizeof(peer_addr);
+    if (getpeername(fd, (struct sockaddr*)&peer_addr, &socklen)) {
+        perror("Getting peer name");
         return -1;
     }
 
-    if (start_drop(&src_addr, dst_addr.sin_port)) {
-        logerr("Error starting drop");
+    struct redirect_msg re_msg = {
+        .old_fd = fd,
+        .n_sport = peer_addr.sin_port,
+        .orig_peer = server->local_id,
+        .next_peer = peer_id
+    };
+    loginfo("Transferring :%d to %d", ntohs(peer_addr.sin_port), peer_id);
+
+    int rtn = send_tsock_msg(server->proxy_fd, REDIRECT, &re_msg, sizeof(re_msg), &proxy_mutex);
+    if (rtn < 0) {
+        logerr("Error sending REDIRECT msg");
+        return -1;
+    }
+
+    return 0;
+}
+
+int handle_do_xfer(int proxy_fd, struct tsock_server *server) {
+    loginfo("Received DO_XFER\n");
+    struct redirect_msg msg;
+    ssize_t recvd = recv(proxy_fd, &msg, sizeof(msg), 0);
+    if (recvd != sizeof(msg)) {
+        logerr("Received weird size redirect msg: %zd", recvd);
+        return -1;
+    }
+
+    struct tsock_peer *peer = &server->peers[msg.next_peer];
+    if (peer->peer_fd <= 0) {
+        logerr("Peer %d DNE", msg.next_peer);
         return -1;
     }
 
     struct tcp_state state;
     init_tcp_state(&state);
-    if (get_tcp_state(fd, &state, 1)) {
+    if (get_tcp_state(msg.old_fd, &state, 1)) {
         logerr("Error getting tcp state");
         return -1;
     }
-    loginfo("Got srcport: %d", (int)htons(state.caddr.src_port));
-
-    int xfer_id = server->max_active_xfer++ % MAX_ACTIVE_TRANSFERS;
-    server->active_transfers[xfer_id] = fd;
-    struct xfer_msg msg = {xfer_id};
-
+    close(msg.old_fd);
     loginfo("Locking mutex (peer)");
     if (pthread_mutex_lock(&server->mutex)) {
         perror("pthread mutex lock");
     }
-    int rtn = send_tsock_msg(peer->peer_fd, XFER, &msg, sizeof(msg), NULL);
+    int rtn = send_tsock_msg(peer->peer_fd, XFER, NULL, 0, NULL);
     if (rtn < 0) {
         logerr("Error sending INIT_XFER msg");
         return -1;
@@ -489,6 +352,11 @@ int tsock_accept(struct tsock_server *server, int timeout_ms) {
         if (rtn == 0) {
             return 0;
         }
+        if (!(event.events & EPOLLIN)) {
+            logerr("Got non-EPOLLIN on %d", event.data.u32);
+            return -1;
+        }
+
         loginfo("Activity on num %ud", event.data.u32);
         if (event.data.u32 == MAX_PEERS) {
             return accept(server->app_fd, NULL, NULL);
@@ -521,31 +389,19 @@ int tsock_accept(struct tsock_server *server, int timeout_ms) {
                     return -1;
                 }
                 break;
-            case XFER:
-                if (handle_xfer(peer, &server->app_addr, server->proxy_fd, server->local_id, server)) {
-                    logerr("Error handling xfer");
+            case DO_XFER:
+                if (handle_do_xfer(peer_fd, server)) {
+                    logerr("Error handling DO_XFER");
                     return -1;
                 }
                 break;
-            case XFER_DONE:
-                if (handle_xfer_done(peer, server)) {
-                    logerr("Error handling XFER_DONE");
-                    return -1;
-                }
-                break;
-            case REDIRECTED:;
-                int newfd = handle_redirected(peer_fd);
+            case XFER:;
+                int newfd = handle_xfer(peer, server);
                 if (newfd < 0) {
-                    logerr("Error handlign redirected message");
+                    logerr("Error handling XFER");
                     return -1;
                 }
                 return newfd;
-            case UNDROP:
-                if (handle_undrop(peer_fd)) {
-                    logerr("Error handling undrop");
-                    return -1;
-                }
-                break;
             default:
                 logerr("Received unknown hdr.type=%d", hdr.type);
                 return -1;

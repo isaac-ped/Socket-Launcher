@@ -27,6 +27,7 @@ struct __attribute__((__packed__)) outhdr {
 struct __attribute__((__packed__)) dst_addr {
     __be32 addr;
     __be16 port;
+    uint8_t inactive;
 };
 
 struct __attribute__((__packed__)) flow {
@@ -104,6 +105,12 @@ static int handle_outflow(struct inhdr *hdr) {
         return PASS;
     }
 
+    if (client->inactive && hdr->tcp.rst) {
+        bpf_trace_printk("PROXY: dropping rst %d:%d->%d\n",
+                         curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
+        return DROP;
+    }
+
     bpf_trace_printk("PROXY: Matched outflow %d:%d->%d\n",
                      curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
 
@@ -118,17 +125,21 @@ static int handle_outflow(struct inhdr *hdr) {
     hdr->tcp.check = incr_check_l(hdr->tcp.check,
             ntohl(orig.ip.saddr), ntohl(client->addr));
 
-    struct flow inflow = {
-        .srcaddr = client->addr,
-        .srcport = client->port,
-        .dstport = hdr->tcp.source
-    };
+    if (!client->inactive) {
 
-    int *active_flow = inflows.lookup(&inflow);
-    if (!active_flow) {
-        bpf_trace_printk("PROXY: BAD! outflow 9\n");
-    } else if (*active_flow < 0) {
-        *active_flow = -(*active_flow);
+        struct flow inflow = {
+            .srcaddr = client->addr,
+            .srcport = client->port,
+            .dstport = hdr->tcp.source
+        };
+
+        int *active_flow = inflows.lookup(&inflow);
+        if (!active_flow) {
+            bpf_trace_printk("PROXY: BAD! outflow 9\n");
+        } else if (*active_flow < 0) {
+            bpf_trace_printk("PROXY: Reset active flow :%d to %d\n", (int)(ntohs(inflow.srcport)), *active_flow);
+            *active_flow = -(*active_flow);
+        }
     }
 
     return REFLECT;
@@ -177,7 +188,7 @@ static int handle_inflow(struct inhdr *hdr) {
         }
         *new_flow = (*new_flow + 1) % (*max_flow);
 
-        int flow = *new_flow;
+        int flow = *new_flow + 1;
 
         active_flow = inflows.lookup_or_init(&curr_flow, &flow);
 
@@ -187,7 +198,7 @@ static int handle_inflow(struct inhdr *hdr) {
         return PASS;
     }
 
-    unsigned int flow = *active_flow;
+    unsigned int flow = *active_flow - 1;
     struct dst_addr *dst_server = dst_servers.lookup(&flow);
     if (!dst_server) {
         bpf_trace_printk("PROXY: inBAD 1\n");
@@ -204,7 +215,8 @@ static int handle_inflow(struct inhdr *hdr) {
 
     struct dst_addr client = {
         .addr = hdr->ip.saddr,
-        .port = hdr->tcp.source
+        .port = hdr->tcp.source,
+        .inactive = 0
     };
     outflows.update(&rtn_flow, &client);
 
@@ -231,9 +243,10 @@ int monitor_ingress(CTX_TYPE *ctx) {
         return PASS;
     }
 
-    if (handle_inflow(hdr) == REFLECT) {
-        bpf_trace_printk("REFLECTING IN\n");
-        return REFLECT;
+    int rtn = handle_inflow(hdr);
+
+    if (rtn != PASS) {
+        return rtn;
     }
 
     if (handle_outflow(hdr) == REFLECT) {
