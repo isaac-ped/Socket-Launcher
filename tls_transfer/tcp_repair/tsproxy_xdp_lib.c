@@ -144,6 +144,10 @@ int proxy_ctl_loop(struct sockaddr_in *ctl_addr) {
     loginfo("Conntected socket to %s\n", SOCK_LOC);
 
     int ctl_fd = create_listening_fd(ctl_addr);
+    if (ctl_fd < 0) {
+        logerr("Error creating control FD");
+        return -1;
+    }
     char self_ip[16], self_port[8];
     if (get_ip_and_port(ctl_addr, self_ip, self_port)) {
         return -1;

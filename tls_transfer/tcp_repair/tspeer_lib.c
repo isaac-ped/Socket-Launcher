@@ -17,7 +17,7 @@
 
 static void *ctx;
 static void *requester;
-#define SOCK_LOC "ipc:///tmp/drop_client/%d"
+#define SOCK_LOC "ipc:///tmp/tspeer/%d"
 
 static int init_connection(struct tsock_server *self, struct sockaddr_in *peer_addr) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -53,6 +53,16 @@ struct peer_args {
     int peer_id;
 };
 
+static int get_ip_and_port(struct sockaddr_in *addr, char ip[16], char port[8]) {
+    if (inet_ntop(AF_INET, &addr->sin_addr, ip, 16) == NULL) {
+        perror("inet_ntop");
+        return -1;
+    }
+    snprintf(port, 8, "%d", ntohs(addr->sin_port));
+    return 0;
+}
+
+
 static int add_peer_to_epoll(struct tsock_server *self, int fd, int peer_id) {
     struct epoll_event ev;
     ev.events = EPOLLIN;
@@ -74,6 +84,29 @@ static int connect_to_proxy(struct tsock_server *self, struct sockaddr_in *proxy
     add_peer_to_epoll(self, self->proxy_fd, MAX_PEERS + 1);
     return 0;
 };
+
+static pthread_mutex_t zmq_mutex = PTHREAD_MUTEX_INITIALIZER;
+#define ADD_PEER_TEMPLATE "{\"type\": \"add_peer\", \"ip\": \"%s\", \"port\": %s, \"id\": %d}"
+
+static int add_peer(struct sockaddr_in *peer_addr, int peer_id) {
+    char ip[16], port[8];
+    if (get_ip_and_port(peer_addr, ip, port)) {
+        return -1;
+    }
+
+    char add_peer_msg[1024];
+    size_t n = snprintf(add_peer_msg, sizeof(add_peer_msg), ADD_PEER_TEMPLATE,
+                        ip, port, peer_id);
+    pthread_mutex_lock(&zmq_mutex);
+    zmq_send(requester, add_peer_msg, n, 0);
+    loginfo("Adding peer: %s", ip);
+    int size = zmq_recv(requester, add_peer_msg, 1024, 0);
+    pthread_mutex_unlock(&zmq_mutex);
+    add_peer_msg[size] = '\0';
+    loginfo("Proxy responded to add peer: %s", add_peer_msg);
+    return 0;
+}
+
 
 static int handle_peer_join(struct tsock_server *self, int proxyfd) {
     struct hello_msg msg;
@@ -99,8 +132,114 @@ static int handle_peer_join(struct tsock_server *self, int proxyfd) {
         return -1;
     }
 
+    if (add_peer(&msg.app_addr, msg.peer_id)) {
+        return -1;
+    }
     return 0;
 }
+
+#define X_BLOCK_TEMPLATE "{\"type\": \"%s\", \"ip\": \"%s\", \"src_port\": %s, \"dst_port\": %s}"
+static int x_block_delivery(char *x,
+                            struct sockaddr_in *client_addr,
+                            struct sockaddr_in *app_addr) {
+    char ip[16], port[8];
+    if (get_ip_and_port(client_addr, ip, port)) {
+        return -1;
+    }
+    char app_ip[16], app_port[8];
+    if (get_ip_and_port(app_addr, app_ip, app_port)) {
+        return -1;
+    }
+
+    char block_msg[1024];
+    size_t n = snprintf(block_msg, sizeof(block_msg),
+                        X_BLOCK_TEMPLATE,
+                        x, ip, port, app_port);
+    pthread_mutex_lock(&zmq_mutex);
+    zmq_send(requester, block_msg, n, 0);
+    int size = zmq_recv(requester, block_msg, 1024, 0);
+    pthread_mutex_unlock(&zmq_mutex);
+    block_msg[size] = '\0';
+
+    loginfo("Proxy responded to redirect: %s", block_msg);
+
+    return 0;
+}
+
+static int block_delivery(struct sockaddr_in *client_addr, struct sockaddr_in *app_addr) {
+    if (x_block_delivery("block", client_addr, app_addr)) {
+        logerr("Error blocking delivery");
+        return -1;
+    }
+    return 0;
+}
+
+static int unblock_delivery(struct sockaddr_in *client_addr, struct sockaddr_in *app_addr) {
+    if (x_block_delivery("unblock", client_addr, app_addr)) {
+        logerr("Error unblocking delivery");
+        return -1;
+    }
+    return 0;
+}
+
+#define X_REDIR_TEMPLATE "\"src_addr\": \"%s\", \"src_port\": %s, \"dst_port\": %s"
+
+#define REDIR_TEMPLATE "{\"type\": \"redirect\", \"next_id\": %d, " X_REDIR_TEMPLATE "}"
+#define STOP_REDIR_TEMPLATE "{\"type\": \"stop_redirect\", " X_REDIR_TEMPLATE "}"
+
+static int send_redirect(int peer_id,
+                         struct sockaddr_in *client_addr,
+                         struct sockaddr_in *app_addr) {
+    char ip[16], port[8];
+    if (get_ip_and_port(client_addr, ip, port)) {
+        return -1;
+    }
+    char app_ip[16], app_port[8];
+    if (get_ip_and_port(app_addr, app_ip, app_port)) {
+        return -1;
+    }
+    char redirect_msg[1024];
+    size_t n = snprintf(redirect_msg, sizeof(redirect_msg), REDIR_TEMPLATE,
+                        peer_id, ip, port, app_port);
+
+    pthread_mutex_lock(&zmq_mutex);
+    zmq_send(requester, redirect_msg, n, 0);
+    int size = zmq_recv(requester, redirect_msg, 1024, 0);
+    pthread_mutex_unlock(&zmq_mutex);
+    redirect_msg[size] = '\0';
+
+    loginfo("ZMQ responded to redirect: %s", redirect_msg);
+
+    return 0;
+}
+
+static int send_stop_redirect(struct sockaddr_in *client_addr,
+                              struct sockaddr_in *app_addr) {
+    char ip[16], port[8];
+    if (get_ip_and_port(client_addr, ip, port)) {
+        return -1;
+    }
+    char app_ip[16], app_port[8];
+    if (get_ip_and_port(app_addr, app_ip, app_port)) {
+        return -1;
+    }
+    char redirect_msg[1024];
+    size_t n = snprintf(redirect_msg, sizeof(redirect_msg), STOP_REDIR_TEMPLATE,
+                        ip, port, app_port);
+
+    pthread_mutex_lock(&zmq_mutex);
+    zmq_send(requester, redirect_msg, n, 0);
+    int size = zmq_recv(requester, redirect_msg, 1024, 0);
+    pthread_mutex_unlock(&zmq_mutex);
+    redirect_msg[size] = '\0';
+
+    loginfo("ZMQ responded to stop_redirect: %s", redirect_msg);
+
+    return 0;
+}
+
+
+
 
 struct tsock_server *init_tsock_server(struct sockaddr_in *ctl_addr,
                                        struct sockaddr_in *app_addr,
@@ -153,13 +292,6 @@ struct tsock_server *init_tsock_server(struct sockaddr_in *ctl_addr,
 
 static void *peer_ctl_loop(void *vself) {
     struct tsock_server *self = vself;
-    /*
-    int rtn = pthread_create(&self->proxy_thread, NULL, proxy_comm_loop, self);
-    if (rtn) {
-        perror("pthread_create");
-        return NULL;
-    }
-    */
     int ctl_fd = self->ctl_fd;
 
     struct tsock_hdr hdr;
@@ -200,6 +332,9 @@ static void *peer_ctl_loop(void *vself) {
         self->peers[msg.peer_id].peer_id = msg.peer_id;
         if (add_peer_to_epoll(self, newfd, msg.peer_id)) {
             logerr("Error adding peer %d", msg.peer_id);
+        }
+        if (add_peer(&msg.app_addr, msg.peer_id)) {
+            logerr("Error adding peer %d to zmq", msg.peer_id);
         }
     }
     self->do_exit = 1;
@@ -257,6 +392,19 @@ static int handle_xfer(struct tsock_peer *peer,
         perror("Unsetting TCP_REPAIR");
         return -1;
     }
+
+    struct sockaddr_in client_addr;
+    socklen_t socklen = sizeof(client_addr);
+    if (getpeername(newfd, (struct sockaddr*)&client_addr, &socklen)) {
+        perror("Getting peer name");
+        return -1;
+    }
+
+    if (unblock_delivery(&client_addr, &server->app_addr)) {
+        logerr("Unblocking delivery");
+        return -1;
+    }
+
     return newfd;
 }
 
@@ -270,22 +418,17 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
         return -1;
     }
 
-    struct sockaddr_in peer_addr;
-    socklen_t socklen = sizeof(peer_addr);
-    if (getpeername(fd, (struct sockaddr*)&peer_addr, &socklen)) {
+    struct prep_msg prep = {
+        .orig_fd = fd,
+    };
+    socklen_t socklen = sizeof(prep.client_addr);
+    if (getpeername(fd, (struct sockaddr*)&prep.client_addr, &socklen)) {
         perror("Getting peer name");
         return -1;
     }
+    loginfo("Transferring :%d to %d", ntohs(prep.client_addr.sin_port), peer_id);
 
-    struct redirect_msg re_msg = {
-        .old_fd = fd,
-        .n_sport = peer_addr.sin_port,
-        .orig_peer = server->local_id,
-        .next_peer = peer_id
-    };
-    loginfo("Transferring :%d to %d", ntohs(peer_addr.sin_port), peer_id);
-
-    int rtn = send_tsock_msg(server->proxy_fd, REDIRECT, &re_msg, sizeof(re_msg), &proxy_mutex);
+    int rtn = send_tsock_msg(peer->peer_fd, PREP, &prep, sizeof(prep), &server->mutex);
     if (rtn < 0) {
         logerr("Error sending REDIRECT msg");
         return -1;
@@ -306,6 +449,13 @@ int handle_do_xfer(int proxy_fd, struct tsock_server *server) {
     struct tsock_peer *peer = &server->peers[msg.next_peer];
     if (peer->peer_fd <= 0) {
         logerr("Peer %d DNE", msg.next_peer);
+        return -1;
+    }
+
+    struct sockaddr_in client_addr;
+    socklen_t socklen = sizeof(client_addr);
+    if (getpeername(msg.old_fd, (struct sockaddr*)&client_addr, &socklen)) {
+        perror("Getting peername for DO_XFER");
         return -1;
     }
 
@@ -334,8 +484,66 @@ int handle_do_xfer(int proxy_fd, struct tsock_server *server) {
     if (pthread_mutex_unlock(&server->mutex)) {
         perror("pthread mutex unlock");
     }
+
+    if (send_stop_redirect(&client_addr, &server->app_addr)) {
+        logerr("Error sending STOP REDIRECT");
+        return -1;
+    }
+
     return 0;
 }
+
+static int handle_prep(struct tsock_peer *peer, struct tsock_server *server) {
+    loginfo("Received PREP");
+    struct prep_msg msg;
+    ssize_t recvd = recv(peer->peer_fd, &msg, sizeof(msg), 0);
+    if (recvd != sizeof(msg)) {
+        logerr("Received weird prep msg: %zd", recvd);
+        return -1;
+    }
+
+    if (block_delivery(&msg.client_addr, &server->app_addr)) {
+        logerr("Error blocking delivery for prep");
+        return -1;
+    }
+
+    int rtn = send_tsock_msg(peer->peer_fd, PREPPED, &msg, sizeof(msg), &server->mutex);
+    if (rtn < 0) {
+        logerr("Error sending PREPPED msg");
+        return -1;
+    }
+    return 0;
+}
+
+static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) {
+    loginfo("Received PREPPED");
+    struct prep_msg msg;
+    ssize_t recvd = recv(peer->peer_fd, &msg, sizeof(msg), 0);
+    if (recvd != sizeof(msg)) {
+        logerr("Received weird PREPPED msg: %zd", recvd);
+        return -1;
+    }
+
+    if (send_redirect(peer->peer_id, &msg.client_addr, &server->app_addr)) {
+        return -1;
+    }
+
+    struct redirect_msg re_msg = {
+        .old_fd = msg.orig_fd,
+        .n_sport = msg.client_addr.sin_port,
+        .orig_peer = server->local_id,
+        .next_peer = peer->peer_id
+    };
+
+    int rtn = send_tsock_msg(server->proxy_fd, REDIRECT, &re_msg, sizeof(re_msg), &proxy_mutex);
+    if (rtn != 0) {
+        logerr("Error sending REDIRECT");
+        return -1;
+    }
+
+    return 0;
+}
+
 
 
 int tsock_accept(struct tsock_server *server, int timeout_ms) {
@@ -386,6 +594,18 @@ int tsock_accept(struct tsock_server *server, int timeout_ms) {
             case PEER_JOIN:
                 if (handle_peer_join(server, peer_fd)) {
                     logerr("Error handling peer join");
+                    return -1;
+                }
+                break;
+            case PREP:
+                if (handle_prep(peer, server)) {
+                    logerr("Error handling PREP");
+                    return -1;
+                }
+                break;
+            case PREPPED:
+                if (handle_prepped(peer, server)) {
+                    logerr("Error hanlding PREPPED");
                     return -1;
                 }
                 break;

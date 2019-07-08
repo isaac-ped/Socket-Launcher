@@ -6,6 +6,8 @@
 enum msg_type {
     HELLO,
     PEER_JOIN,
+    PREP,
+    PREPPED,
     REDIRECT,
     DO_XFER,
     XFER
@@ -19,6 +21,11 @@ struct hello_msg {
     unsigned int peer_id;
     struct sockaddr_in app_addr;
     struct sockaddr_in ctl_addr;
+};
+
+struct prep_msg {
+    int orig_fd;
+    struct sockaddr_in client_addr;
 };
 
 struct redirect_msg {
