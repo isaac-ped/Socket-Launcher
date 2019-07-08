@@ -54,6 +54,7 @@ class Proxy(object):
         if mac is None:
             print("COULD NOT FIND MAC ADDRESS FOR IP %s"% ip)
         macstr = mac.replace(':', '').decode('hex')
+        print("Found mac address: {}, {}".format(mac, macstr))
         server = DstAddr(macstr, structip, ct.c_uint16(socket.htons(port)))
 
         if id is None:
