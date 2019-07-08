@@ -112,7 +112,6 @@ class LBRecv(object):
             self.redirect_flow(jmsg['next_id'], jmsg['src_addr'], jmsg['src_port'], jmsg['dst_port'])
         elif jmsg['type'] == 'stop_redirect':
             self.stop_redirect(jmsg['src_addr'], jmsg['src_port'], jmsg['dst_port'])
-
         else:
             print("UNKNOWN TYPE: %s" % jmsg['type'])
 

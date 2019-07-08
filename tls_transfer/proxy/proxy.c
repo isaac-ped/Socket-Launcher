@@ -25,9 +25,9 @@ struct __attribute__((__packed__)) outhdr {
 };
 
 struct __attribute__((__packed__)) dst_addr {
+    unsigned char h_dest[ETH_ALEN];
     __be32 addr;
     __be16 port;
-    uint8_t inactive;
 };
 
 struct __attribute__((__packed__)) flow {
@@ -105,11 +105,6 @@ static int handle_outflow(struct inhdr *hdr) {
         return PASS;
     }
 
-    if (client->inactive && hdr->tcp.rst) {
-        bpf_trace_printk("PROXY: dropping rst %d:%d->%d\n",
-                         curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
-        return DROP;
-    }
 
     bpf_trace_printk("PROXY: Matched outflow %d:%d->%d\n",
                      curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
@@ -119,28 +114,12 @@ static int handle_outflow(struct inhdr *hdr) {
     memcpy(hdr->eth.h_source, orig.eth.h_dest, sizeof(orig.eth.h_dest));
     hdr->ip.saddr = orig.ip.daddr;
     hdr->ip.daddr = client->addr;
+    memcpy(hdr->eth.h_dest, client->h_dest, ETH_ALEN);
 
     hdr->ip.check = incr_check_l(hdr->ip.check,
             ntohl(orig.ip.saddr), ntohl(client->addr));
     hdr->tcp.check = incr_check_l(hdr->tcp.check,
             ntohl(orig.ip.saddr), ntohl(client->addr));
-
-    if (!client->inactive) {
-
-        struct flow inflow = {
-            .srcaddr = client->addr,
-            .srcport = client->port,
-            .dstport = hdr->tcp.source
-        };
-
-        int *active_flow = inflows.lookup(&inflow);
-        if (!active_flow) {
-            bpf_trace_printk("PROXY: BAD! outflow 9\n");
-        } else if (*active_flow < 0) {
-            bpf_trace_printk("PROXY: Reset active flow :%d to %d\n", (int)(ntohs(inflow.srcport)), *active_flow);
-            *active_flow = -(*active_flow);
-        }
-    }
 
     return REFLECT;
 }
@@ -216,8 +195,8 @@ static int handle_inflow(struct inhdr *hdr) {
     struct dst_addr client = {
         .addr = hdr->ip.saddr,
         .port = hdr->tcp.source,
-        .inactive = 0
     };
+    memcpy(client.h_dest, hdr->eth.h_dest, ETH_ALEN);
     outflows.update(&rtn_flow, &client);
 
     struct inhdr orig = *hdr;

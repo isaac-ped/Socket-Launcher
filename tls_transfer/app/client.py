@@ -22,7 +22,8 @@ def tcp_ping(ip, port, N=20, auto=True, reps=1):
             if not auto:
                 x = raw_input()
             else:
-                time.sleep(.05)
+                pass
+                #time.sleep(.01)
             rcvd = 0
 
             while rcvd < expected:

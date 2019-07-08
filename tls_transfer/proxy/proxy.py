@@ -9,6 +9,7 @@ from pyroute2 import IPRoute
 import time
 import zmq
 import json
+import arpreq
 
 
 def ip2int(addr):
@@ -17,6 +18,7 @@ def ip2int(addr):
 class DstAddr(ct.Structure):
     _pack_ = 1
     _fields_ = [
+            ('h_dest', ct.c_char * 6),
             ('addr', ct.c_uint32),
             ('port', ct.c_uint16)
     ]
@@ -48,7 +50,11 @@ class Proxy(object):
     def add_server(self, ip, port, id=None):
         print("Adding server at %s:%d" % (ip, port))
         structip = ip2int(ip)
-        server = DstAddr(structip, ct.c_uint16(socket.htons(port)))
+        mac = arpreq.arpreq(ip)
+        if mac is None:
+            print("COULD NOT FIND MAC ADDRESS FOR IP %s"% ip)
+        macstr = mac.replace(':', '').decode('hex')
+        server = DstAddr(macstr, structip, ct.c_uint16(socket.htons(port)))
 
         if id is None:
             id = self.n_servers
@@ -70,7 +76,6 @@ class Proxy(object):
         new_outflow = Flow(next.addr, next.port, ct.c_uint16(n_sport))
         try:
             client = self.b['outflows'][orig_outflow]
-            self.b['outflows'][orig_outflow].inactive = 1
         except KeyError:
             print("Could not find outflow")
             return
@@ -82,7 +87,7 @@ class Proxy(object):
         if inflow not in self.b['inflows']:
             print("NOT REPLACING WHICH IS WEIRD")
 
-        self.b['inflows'][inflow] = ct.c_int(-1 * (next_id + 1))
+        self.b['inflows'][inflow] = ct.c_int((next_id + 1))
         self.b['outflows'][new_outflow] = client
 
     def add_port(self, port):
