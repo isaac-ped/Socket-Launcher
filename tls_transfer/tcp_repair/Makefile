@@ -4,7 +4,7 @@ LFLAGS+=-lpthread -lzmq
 
 TARGETS=repair_sender repair_receiver
 TARGETS+=tspeer
-OBJS=tcp_repair.o tsproxy_lib.o tspeer_lib.o communication.o file-db-pool.o
+OBJS=tcp_repair.o tspeer_lib.o communication.o file-db-pool.o
 DEPS=tcp_repair.h communication.h
 
 XDP_TARGETS=tsproxy_xdp

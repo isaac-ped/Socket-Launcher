@@ -9,7 +9,7 @@ enum msg_type {
     PREP,
     PREPPED,
     REDIRECT,
-    DO_XFER,
+    REDIRECTED,
     XFER
 };
 
