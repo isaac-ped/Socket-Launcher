@@ -110,7 +110,6 @@ static int handle_outflow(struct inhdr *hdr) {
                      curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
 
     struct inhdr orig = *hdr;
-    memcpy(hdr->eth.h_dest, orig.eth.h_source, sizeof(orig.eth.h_source));
     memcpy(hdr->eth.h_source, orig.eth.h_dest, sizeof(orig.eth.h_dest));
     hdr->ip.saddr = orig.ip.daddr;
     hdr->ip.daddr = client->addr;
@@ -196,12 +195,13 @@ static int handle_inflow(struct inhdr *hdr) {
         .addr = hdr->ip.saddr,
         .port = hdr->tcp.source,
     };
-    memcpy(client.h_dest, hdr->eth.h_dest, ETH_ALEN);
+    memcpy(client.h_dest, hdr->eth.h_source, ETH_ALEN);
     outflows.update(&rtn_flow, &client);
 
     struct inhdr orig = *hdr;
-    memcpy(hdr->eth.h_dest, orig.eth.h_source, sizeof(orig.eth.h_source));
+    //memcpy(hdr->eth.h_dest, orig.eth.h_source, sizeof(orig.eth.h_source));
     memcpy(hdr->eth.h_source, orig.eth.h_dest, sizeof(orig.eth.h_dest));
+    memcpy(hdr->eth.h_dest, dst_server->h_dest, sizeof(dst_server->h_dest));
     hdr->ip.saddr = orig.ip.daddr;
     hdr->ip.daddr = dst_server->addr;
     hdr->tcp.dest = dst_server->port;
