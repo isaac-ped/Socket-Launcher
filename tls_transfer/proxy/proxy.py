@@ -21,6 +21,13 @@ class DstAddr(ct.Structure):
             ('port', ct.c_uint16)
     ]
 
+class OutFlow(ct.Structure):
+    _pack_ = 1
+    _fields_ = [
+            ('srcport', ct.c_uint16),
+            ('dstport', ct.c_uint16)
+    ]
+
 class Flow(ct.Structure):
     _pack_ = 1
     _fields_ = [
@@ -66,11 +73,9 @@ class Proxy(object):
         orig = self.b['dst_servers'][orig_id]
         next = self.b['dst_servers'][next_id]
 
-        orig_outflow = Flow(orig.addr, orig.port, ct.c_uint16(n_sport))
-        new_outflow = Flow(next.addr, next.port, ct.c_uint16(n_sport))
+        outflow = OutFlow(orig.port, ct.c_uint16(n_sport))
         try:
-            client = self.b['outflows'][orig_outflow]
-            self.b['outflows'][orig_outflow].inactive = 1
+            client = self.b['outflows'][outflow]
         except KeyError:
             print("Could not find outflow")
             return
@@ -82,8 +87,8 @@ class Proxy(object):
         if inflow not in self.b['inflows']:
             print("NOT REPLACING WHICH IS WEIRD")
 
-        self.b['inflows'][inflow] = ct.c_int(-1 * (next_id + 1))
-        self.b['outflows'][new_outflow] = client
+        self.b['inflows'][inflow] = ct.c_int(next_id + 1)
+        #self.b['outflows'][new_outflow] = client
 
     def add_port(self, port):
         ctport = ct.c_uint16(socket.htons(port))

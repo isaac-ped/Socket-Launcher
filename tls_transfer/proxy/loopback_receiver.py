@@ -96,7 +96,10 @@ class LBRecv(object):
                 ct.c_uint16(socket.htons(srcport)),
                 ct.c_uint16(socket.htons(dstport)))
 
-        del self.b['redirect_flows'][flow]
+        try:
+            del self.b['redirect_flows'][flow]
+        except:
+            print("Couldn't del flow")
 
     def handle_message(self, msg):
         print("Handling message: %s" % msg)

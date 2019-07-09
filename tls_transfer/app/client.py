@@ -16,19 +16,22 @@ def tcp_ping(ip, port, N=20, auto=True, reps=1):
             for _ in range(reps):
                 message = 'Ping: %d' % i
 
+                sendtime = time.time()
                 sock.sendall(message)
 
                 expected += len(message)
             if not auto:
                 x = raw_input()
             else:
-                time.sleep(.05)
+                pass
+                time.sleep(.025)
             rcvd = 0
 
             while rcvd < expected:
                 data = sock.recv(expected)
+                rcvtime = time.time()
                 rcvd += len(data)
-                print("Received %s" % data)
+            print("Received %s in %.3fs" % (data, rcvtime - sendtime))
     except Exception as e:
         print("Got exception:", e)
 

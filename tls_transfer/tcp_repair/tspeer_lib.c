@@ -426,6 +426,9 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
         perror("Getting peer name");
         return -1;
     }
+    if (block_delivery(&prep.client_addr, &server->app_addr)) {
+        logerr("Error blocking delivery");
+    }
     loginfo("Transferring :%d to %d", ntohs(prep.client_addr.sin_port), peer_id);
 
     int rtn = send_tsock_msg(peer->peer_fd, PREP, &prep, sizeof(prep), &server->mutex);
@@ -438,7 +441,7 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
 }
 
 int handle_redirected(int proxy_fd, struct tsock_server *server) {
-    loginfo("Received DO_XFER\n");
+    loginfo("Received REDIRECTED\n");
     struct redirect_msg msg;
     ssize_t recvd = recv(proxy_fd, &msg, sizeof(msg), 0);
     if (recvd != sizeof(msg)) {
@@ -454,12 +457,12 @@ int handle_redirected(int proxy_fd, struct tsock_server *server) {
     }
 
     close(msg.old_fd);
-
+/*
     if (send_stop_redirect(&client_addr, &server->app_addr)) {
         logerr("Error sending STOP REDIRECT");
         return -1;
     }
-
+*/
     return 0;
 }
 
@@ -469,6 +472,11 @@ static int handle_prep(struct tsock_peer *peer, struct tsock_server *server) {
     ssize_t recvd = recv(peer->peer_fd, &msg, sizeof(msg), 0);
     if (recvd != sizeof(msg)) {
         logerr("Received weird prep msg: %zd", recvd);
+        return -1;
+    }
+
+    if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
+        logerr("Error sending STOP REDIRECT");
         return -1;
     }
 
@@ -497,7 +505,10 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
     if (send_redirect(peer->peer_id, &msg.client_addr, &server->app_addr)) {
         return -1;
     }
-
+    if (unblock_delivery(&msg.client_addr, &server->app_addr)) {
+        logerr("Error unblocking delivery");
+        return -1;
+    }
 
     struct tcp_state state;
     init_tcp_state(&state);
