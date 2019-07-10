@@ -323,7 +323,7 @@ static void *peer_loop(void *varg) {
                     err = 1;
                     break;
                 }
-                if (send_tsock_msg(fd, DO_XFER, &msg, sizeof(msg), NULL)) {
+                if (send_tsock_msg(fd, REDIRECTED, &msg, sizeof(msg), NULL)) {
                     logerr("Error sending DO_XFER");
                     err = 1;
                 }

@@ -127,6 +127,7 @@ static ssize_t sendqmsg(int fd, struct iovec *msg_iov, size_t msg_iovlen) {
 
 static int set_tcp_qstate_iov(int fd, struct tcp_qstate *qstate, int qspec) {
     if (qstate->hdr.readlen == 0) {
+        logerr("No readlen");
         return 0;
     }
     if (setsockopt(fd, SOL_TCP, TCP_REPAIR_QUEUE, &qspec, sizeof(qspec))) {
@@ -137,6 +138,7 @@ static int set_tcp_qstate_iov(int fd, struct tcp_qstate *qstate, int qspec) {
         logerr("Error sending qmsg for setting state");
         return -1;
     }
+    loginfo("Repaired queue with %d bytes", (int) qstate->msg_iov[0].iov_len);
     return 0;
 }
 static int set_tcp_qstate_seq(int fd, struct tcp_qstate *qstate, int qspec) {
@@ -287,6 +289,7 @@ static int recv_tcp_qstate(int fd, struct tcp_qstate *qstate) {
             perror("Error readv'ing");
             return -1;
         }
+        loginfo("Readv'd %zd bytes", rcvd);
     }
     return 0;
 }

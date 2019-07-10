@@ -30,6 +30,11 @@ struct __attribute__((__packed__)) dst_addr {
     __be16 port;
 };
 
+struct __attribute__((__packed__)) outflow {
+    __be16 srcport;
+    __be16 dstport;
+};
+
 struct __attribute__((__packed__)) flow {
     __be32 srcaddr;
     __be16 srcport;
@@ -42,7 +47,7 @@ BPF_ARRAY(dst_servers, struct dst_addr);
 BPF_ARRAY(n_dst_servers, unsigned int, 1);
 BPF_HASH(active_ports, __be16, int);
 BPF_HASH(inflows, struct flow, int);
-BPF_HASH(outflows, struct flow, struct dst_addr);
+BPF_HASH(outflows, struct outflow, struct dst_addr);
 BPF_PERCPU_ARRAY(last_flow, int, 1);
 
 
@@ -91,8 +96,7 @@ return htons(~( (__u16)(l>>16) + (l&0xffff) ));
 }
 
 static int handle_outflow(struct inhdr *hdr) {
-    struct flow curr_flow = {
-        .srcaddr = hdr->ip.saddr,
+    struct outflow curr_flow = {
         .srcport = hdr->tcp.source,
         .dstport = hdr->tcp.dest,
     };
@@ -100,14 +104,13 @@ static int handle_outflow(struct inhdr *hdr) {
     struct dst_addr *client = outflows.lookup(&curr_flow);
 
     if (!client) {
-        bpf_trace_printk("PROXY: nonmatch outflow %d:%d->%d\n",
-                         curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
+        bpf_trace_printk("PROXY: nonmatch outflow %d->%d\n",
+                         htons(curr_flow.srcport), htons(curr_flow.dstport));
         return PASS;
     }
 
-
     bpf_trace_printk("PROXY: Matched outflow %d:%d->%d\n",
-                     curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
+                     (int)htonl(hdr->ip.saddr), htons(curr_flow.srcport), htons(curr_flow.dstport));
 
     struct inhdr orig = *hdr;
     memcpy(hdr->eth.h_source, orig.eth.h_dest, sizeof(orig.eth.h_dest));
@@ -133,12 +136,6 @@ static int handle_inflow(struct inhdr *hdr) {
     };
 
     int *active_flow = inflows.lookup(&curr_flow);
-
-    if (active_flow && (*active_flow) < 0) {
-        bpf_trace_printk("PROXY: Drop for now: %d:%d->%d\n",
-                         curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
-        return DROP;
-    }
 
     if (!active_flow) {
         int *has_port = active_ports.lookup(&port);
@@ -183,13 +180,12 @@ static int handle_inflow(struct inhdr *hdr) {
         return PASS;
     }
 
-    struct flow rtn_flow = {
+    struct outflow rtn_flow = {
         .dstport = hdr->tcp.source,
-        .srcaddr = dst_server->addr,
         .srcport = hdr->tcp.dest
     };
     bpf_trace_printk("PROXY: update rtn flow %d:%d->%d\n",
-                     rtn_flow.srcaddr, htons(rtn_flow.srcport), htons(rtn_flow.dstport));
+                      (int)ntohl(hdr->ip.daddr), htons(rtn_flow.srcport), htons(rtn_flow.dstport));
 
     struct dst_addr client = {
         .addr = hdr->ip.saddr,

@@ -16,9 +16,10 @@ static int local_id;
 
 void read_loop(void *vfd, void *unused) {
     int fd = (intptr_t)vfd;
+    loginfo("Got new fd %d", fd);
 
     char buf[1024];
-    for (int i=0; i < 5; i++) {
+    for (int i=0; i < 3; i++) {
         ssize_t recvd = recv(fd, buf, 1024, 0);
         if (recvd < 0) {
             perror("Recv from client");
@@ -31,8 +32,9 @@ void read_loop(void *vfd, void *unused) {
             return;
         }
         buf[recvd] = '\0';
-        printf("Received: %s\n", buf);
+        loginfo("Received on fd %d: %s\n", fd, buf);
         send(fd, buf, recvd, 0);
+        loginfo("Sent on fd %d: %s\n", fd, buf);
     }
     //usleep(1e6);
     int newid = (local_id + 1) % 2;
@@ -104,7 +106,7 @@ int main(int argc, char **argv) {
         int new_fd = tsock_accept(server, 500);
         if (new_fd < 0) {
             logerr("Error accepting");
-            return -1;
+            break;
         }
         if (new_fd == 0) {
             continue;
@@ -113,6 +115,6 @@ int main(int argc, char **argv) {
         tp_enqueue(tp, (void*)(intptr_t)new_fd);
 
     }
-
+    stop_tsock_server(server);
     join_tsock_server(server);
 }

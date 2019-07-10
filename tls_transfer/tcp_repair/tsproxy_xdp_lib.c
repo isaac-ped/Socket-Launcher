@@ -81,8 +81,8 @@ static int handle_redirect(struct peer_info *peers, struct redirect_msg *msg, ch
         return -1;
     }
 
-    if (send_tsock_msg(peers[msg->orig_peer].fd, DO_XFER, msg, sizeof(*msg), NULL)) {
-        logerr("Error sending DO_XFER");
+    if (send_tsock_msg(peers[msg->orig_peer].fd, REDIRECTED, msg, sizeof(*msg), NULL)) {
+        logerr("Error sending REDIRECTED");
         return -1;
     }
 
