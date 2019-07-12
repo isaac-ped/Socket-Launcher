@@ -3,8 +3,9 @@
 
 #include <stdio.h>
 #include <pthread.h>
+#include <time.h>
 
-static double get_logtime() {
+static double __attribute__((__unused__)) get_logtime() {
     struct timespec t;
     //clock_gettime(CLOCK_REALTIME_COARSE, &t);
     clock_gettime(CLOCK_REALTIME_COARSE, &t);
@@ -19,6 +20,7 @@ static double get_logtime() {
 /** Where logs are printed to */
 #define LOG_STREAM stderr
 
+
 /** Macro utilized by all loggers **/
 #define log_to_stream(lvl_label, color, f, fmt, ...)\
         fprintf(f, "" color "%.04f:%u:%s:%d:%s(): " lvl_label ": " fmt ANSI_COLOR_RESET "\n", \
@@ -30,7 +32,17 @@ static double get_logtime() {
             log_to_stream(lvl_label, color, LOG_STREAM, fmt, ##__VA_ARGS__) \
         )
 
+
 #define logerr(msg, ...) log_at_level("ERR:", ANSI_COLOR_RED, msg, ##__VA_ARGS__)
+#define DO_LOG
+
+#ifdef DO_LOG
+
 #define loginfo(msg, ...) log_at_level("INFO:", ANSI_COLOR_RESET, msg, ##__VA_ARGS__)
+
+#else
+#define loginfo(msg, ...)
+
+#endif
 
 #endif

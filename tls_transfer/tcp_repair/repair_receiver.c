@@ -22,7 +22,8 @@ void *socket_handler(void *vfd) {
         }
         buf[readlen] = '\0';
         printf("Read: %s\n", buf);
-        write(fd, buf, readlen);
+        ssize_t writeln = write(fd, buf, readlen);
+        (void)writeln;
     }
     close(fd);
 

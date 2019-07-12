@@ -25,10 +25,12 @@ void *socket_handler(void *vfd) {
         }
         buf[readlen] = '\0';
         printf("Read: %s\n", buf);
-        write(fd, buf, readlen+1);
+        ssize_t writeln = write(fd, buf, readlen+1);
+        (void)writeln;
     }
     usleep(2e6);
-    read(fd, buf, 0);
+    ssize_t readln = read(fd, buf, 0);
+    (void)readln;
     printf("Getting tcp state\n");
 
     struct tcp_state state;

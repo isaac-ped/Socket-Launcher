@@ -3,7 +3,9 @@
 
 #include <sys/uio.h> // readv
 #include <stdio.h>
+#include <sys/types.h>
 #include <sys/socket.h>
+#include <netinet/in.h>
 #include <netinet/tcp.h>
 #include <stdlib.h>
 #include <arpa/inet.h>
@@ -38,6 +40,18 @@ static ssize_t recvqmsg(int fd, struct iovec *msg_iov, size_t msg_iovlen) {
         perror("recvmsg");
         return -1;
     }
+    struct iovec empty = {"", 0};
+    struct msghdr emptyhdr = {
+        .msg_iov = &empty,
+        .msg_iovlen = 1
+    };
+
+    ssize_t sendlen = sendmsg(fd, &emptyhdr, MSG_NOSIGNAL);
+    if (sendlen == -1) {
+        logerr("ERROR SENDING EMPTY QUEUE");
+    }
+    loginfo("Sent %zd bytes to queue", sendlen);
+
     if (qmsg.msg_flags & MSG_TRUNC) {
         logerr("Queue truncated");
         return -1;
@@ -127,7 +141,6 @@ static ssize_t sendqmsg(int fd, struct iovec *msg_iov, size_t msg_iovlen) {
 
 static int set_tcp_qstate_iov(int fd, struct tcp_qstate *qstate, int qspec) {
     if (qstate->hdr.readlen == 0) {
-        logerr("No readlen");
         return 0;
     }
     if (setsockopt(fd, SOL_TCP, TCP_REPAIR_QUEUE, &qspec, sizeof(qspec))) {
@@ -189,6 +202,7 @@ int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr) {
     }
 
     state->rcv.hdr.seq -= state->rcv.hdr.readlen;
+    state->snd.hdr.seq -= state->snd.hdr.readlen;
     if (set_tcp_qstate_seq(fd, &state->rcv, TCP_RECV_QUEUE)) {
         logerr("Error setting TCP_RECV_QUEUE iov");
         return -1;
@@ -205,11 +219,11 @@ int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr) {
         logerr("Error setting TCP_RECV_QUEUE iov");
         return -1;
     }
-    /*
+
     if (set_tcp_qstate_iov(fd, &state->snd, TCP_SEND_QUEUE)) {
         logerr("Error setting TCP_SEND_QUEUE iov");
         return -1;
-    }*/
+    }
     return 0;
 }
 

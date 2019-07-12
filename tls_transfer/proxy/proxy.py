@@ -15,6 +15,10 @@ import arpreq
 def ip2int(addr):
     return socket.htonl(struct.unpack('!I', socket.inet_aton(addr))[0])
 
+
+def int2ip(addr):
+    return socket.inet_ntoa(struct.pack("!I", addr))
+
 class DstAddr(ct.Structure):
     _pack_ = 1
     _fields_ = [
@@ -138,6 +142,10 @@ class Proxy(object):
                 self.handle_message(message)
                 self.sock.send("done")
         finally:
+            print('inflows', len(self.b['inflows']))
+            print('outflows', len(self.b['outflows']))
+            for i, (flow, x) in enumerate(self.b['inflows'].items()):
+                print(socket.ntohs(flow.srcport), socket.ntohs(flow.dstport), int2ip(flow.srcaddr), x)
             self.b.remove_xdp(iface)
             try:
                 ip.tc('del', 'clsact', ifindex)
@@ -155,7 +163,7 @@ if __name__ == '__main__':
 
     p = Proxy()
     p.add_port(args.port)
-    for ip in args.ip:
+    for i, ip in enumerate(args.ip):
         print(ip)
-        p.add_server(ip)
+        p.add_server(ip, args.port, i)
     p.run(args.iface)

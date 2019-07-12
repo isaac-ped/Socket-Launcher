@@ -25,9 +25,11 @@ def tcp_ping(ip, port, N=20, auto=True, reps=1):
             else:
                 pass
             rcvd = 0
-
+            expected *= 1
+            data = ''
+            time.sleep(.05)
             while rcvd < expected:
-                data = sock.recv(expected)
+                data += sock.recv(expected)
                 rcvtime = time.time()
                 rcvd += len(data)
             print("Received %s in %.3fs" % (data, rcvtime - sendtime))

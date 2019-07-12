@@ -11,6 +11,6 @@ int tp_terminate(struct thread_pool *tp);
 
 struct thread_pool *init_thread_pool(unsigned int n_threads,
                                      tp_callback callback,
-                                     void *shared_arg);
+                                     void *shared_arg, int max_length);
 
 #endif

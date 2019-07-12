@@ -19,6 +19,9 @@ struct thread_pool {
     struct thread_queue *head;
     struct thread_queue *tail;
 
+    int max_length;
+    int length;
+
     unsigned int n_threads;
     pthread_t *threads;
 
@@ -64,6 +67,13 @@ int tp_enqueue(struct thread_pool *tp, void *item) {
         perror("pthread_mutex_lock");
         return -1;
     }
+    if (tp->max_length > 0 && tp->length >= tp->max_length) {
+        if (pthread_mutex_unlock(&tp->mutex)) {
+            perror("pthread_mutex_unlock");
+            return -1;
+        }
+        return 1;
+    }
 
     if (tp->tail) {
         tp->tail->next = next;
@@ -72,6 +82,7 @@ int tp_enqueue(struct thread_pool *tp, void *item) {
         tp->head = next;
         tp->tail = next;
     }
+    tp->length += 1;
 
     if(pthread_cond_signal(&tp->condition)) {
         perror("pthread_cond_signal");
@@ -100,6 +111,7 @@ void *tp_dequeue(struct thread_pool *tp) {
 
     struct thread_queue *active = tp->head;
     if (active) {
+        tp->length -= 1;
         void *arg = active->item;
         tp->head = tp->head->next;
         if (tp->head == NULL) {
@@ -128,7 +140,7 @@ void *thread_loop(void *arg) {
     pthread_exit(NULL);
 }
 
-struct thread_pool * init_thread_pool(unsigned int n_threads, tp_callback callback, void *shared_arg) {
+struct thread_pool * init_thread_pool(unsigned int n_threads, tp_callback callback, void *shared_arg, int max_length) {
 
     struct thread_pool *tp = malloc(sizeof(*tp));
     if (!tp) {
@@ -136,6 +148,7 @@ struct thread_pool * init_thread_pool(unsigned int n_threads, tp_callback callba
         return NULL;
     }
     pthread_mutex_init(&tp->mutex, NULL);
+    tp->max_length = max_length;
     tp->head = NULL;
     tp->tail = NULL;
     tp->n_threads = n_threads;

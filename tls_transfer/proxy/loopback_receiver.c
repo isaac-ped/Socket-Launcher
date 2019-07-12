@@ -176,10 +176,6 @@ static int try_redirect(CTX_TYPE *ctx) {
     return REFLECT;
 }
 
-
-
-
-
 static int try_loopback(CTX_TYPE *ctx) {
 
     void *data = (void*)(long)ctx->data;
@@ -272,6 +268,7 @@ static int try_loopback(CTX_TYPE *ctx) {
     return PASS;
 }
 
+
 int monitor_iface_ingress(CTX_TYPE *ctx) {
     int rtn = try_loopback(ctx);
     if (rtn == PASS) {
@@ -282,16 +279,70 @@ int monitor_iface_ingress(CTX_TYPE *ctx) {
 
 #define IFINDEX 2
 
-
 #undef PASS
 #define PASS TC_ACT_OK
+BPF_HASH(ack_flows, struct flow, uint32_t);
+
+int monitor_iface_egress(struct __sk_buff *ctx) {
+    void *data = (void*)(long)ctx->data;
+    void *data_end = (void*)(long)ctx->data_end;
+
+    struct hdr *hdr = data;
+    if (data + sizeof(*hdr) > data_end) {
+        bpf_trace_printk("Iface egress too small");
+        return PASS;
+    }
+
+    if (hdr->ip.protocol != 0x06) {
+        return PASS;
+    }
+
+    struct flow outflow = {
+        .srcaddr = hdr->ip.daddr,
+        .srcport = hdr->tcp.dest,
+        .dstport = hdr->tcp.source
+    };
+
+    int *ack = ack_flows.lookup(&outflow);
+
+    if (!ack) {
+        bpf_trace_printk("NO ACK FLOW\n");
+        return PASS;
+    }
+
+    struct hdr orig = *hdr;
+
+    memcpy(hdr->eth.h_source, orig.eth.h_dest, sizeof(orig.eth.h_dest));
+    memcpy(hdr->eth.h_dest, orig.eth.h_source, sizeof(orig.eth.h_dest));
+
+    hdr->ip.daddr = orig.ip.saddr;
+    hdr->ip.saddr = orig.ip.daddr;
+
+    hdr->tcp.source = orig.tcp.dest;
+    hdr->tcp.dest = orig.tcp.source;
+
+    hdr->tcp.ack_seq = *ack;
+    hdr->tcp.seq = orig.tcp.ack_seq;
+
+    hdr->tcp.check = incr_check_l(hdr->tcp.check,
+            ntohl(orig.tcp.ack_seq), ntohl(hdr->tcp.ack_seq));
+
+    hdr->tcp.check = incr_check_l(hdr->tcp.check,
+            ntohl(orig.tcp.seq), ntohl(hdr->tcp.seq));
+
+    ack_flows.delete(&outflow);
+
+    bpf_trace_printk("Iface egree: RESPONDING WITH ACK!\n");
+    return bpf_redirect(IFINDEX, BPF_F_INGRESS);
+}
+
 int monitor_lo_ingress(struct __sk_buff *ctx) {
     void *data = (void*)(long)ctx->data;
     void *data_end = (void*)(long)ctx->data_end;
 
     struct hdr *normhdr = data;
     if (data + sizeof(*normhdr) > data_end) {
-        bpf_trace_printk("IFACE TOO SMALL\n");
+        bpf_trace_printk("LO TOO SMALL\n");
         return PASS;
     }
 

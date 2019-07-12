@@ -4,6 +4,7 @@
 #include "tspeer_lib.h"
 #include "tcp_repair.h"
 
+#include <sys/select.h>
 #include <unistd.h>
 #include <sys/epoll.h>
 #include <netinet/ip.h>
@@ -135,6 +136,30 @@ static int handle_peer_join(struct tsock_server *self, int proxyfd) {
     if (add_peer(&msg.app_addr, msg.peer_id)) {
         return -1;
     }
+    return 0;
+}
+#define ACK_TEMPLATE "{\"type\": \"ack\", \"dst_addr\": \"%s\", \"dst_port\": %s, \"src_port\": %s, \"ack\": %u}"
+
+static int do_ack(struct sockaddr_in *client_addr, struct sockaddr_in *app_addr, uint32_t ackval) {
+    char ip[16], port[8];
+    if (get_ip_and_port(client_addr, ip, port)) {
+        return -1;
+    }
+    char app_ip[16], app_port[8];
+    if (get_ip_and_port(app_addr, app_ip, app_port)) {
+        return -1;
+    }
+
+    char dup_msg[1025];
+    size_t n = snprintf(dup_msg, sizeof(dup_msg), ACK_TEMPLATE,
+            ip, port, app_port, htonl(ackval));
+    pthread_mutex_lock(&zmq_mutex);
+    zmq_send(requester, dup_msg, n, 0);
+    int size = zmq_recv(requester, dup_msg, 1024, 0);
+    pthread_mutex_unlock(&zmq_mutex);
+    dup_msg[size] = '\0';
+
+    loginfo("ZMQ responded to dup: %s", dup_msg);
     return 0;
 }
 
@@ -387,12 +412,6 @@ static int handle_xfer(struct tsock_peer *peer,
         logerr("Error setting tcp state");
         return -1;
     }
-    int opt = 0;
-    if (setsockopt(newfd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
-        perror("Unsetting TCP_REPAIR");
-        return -1;
-    }
-
     struct sockaddr_in client_addr;
     socklen_t socklen = sizeof(client_addr);
     if (getpeername(newfd, (struct sockaddr*)&client_addr, &socklen)) {
@@ -400,8 +419,17 @@ static int handle_xfer(struct tsock_peer *peer,
         return -1;
     }
 
+    if (do_ack(&client_addr, &server->app_addr, state.snd.hdr.seq)) {
+        logerr("ERROR DUPLICATING PACKETS");
+    }
+
     if (unblock_delivery(&client_addr, &server->app_addr)) {
         logerr("Unblocking delivery");
+        return -1;
+    }
+    int opt = 0;
+    if (setsockopt(newfd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
+        perror("Unsetting TCP_REPAIR");
         return -1;
     }
 
@@ -572,7 +600,11 @@ int tsock_accept(struct tsock_server *server, int timeout_ms) {
 
         loginfo("Activity on num %ud", event.data.u32);
         if (event.data.u32 == MAX_PEERS) {
-            return accept(server->app_fd, NULL, NULL);
+            int rtn = accept(server->app_fd, NULL, NULL);
+            if (rtn < 0) {
+                perror("accept on app_fd");
+            }
+            return rtn;
         }
         int peer_fd;
         struct tsock_peer *peer = NULL;

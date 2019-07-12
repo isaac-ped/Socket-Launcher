@@ -44,7 +44,7 @@ struct __attribute__((__packed__)) flow {
 #define IP_CSUM_OFF offsetof(struct inhdr, ip) + offsetof(struct iphdr, check)
 
 BPF_ARRAY(dst_servers, struct dst_addr);
-BPF_ARRAY(n_dst_servers, unsigned int, 1);
+BPF_ARRAY(n_dst_servers, unsigned int);
 BPF_HASH(active_ports, __be16, int);
 BPF_HASH(inflows, struct flow, int);
 BPF_HASH(outflows, struct outflow, struct dst_addr);
@@ -96,32 +96,55 @@ return htons(~( (__u16)(l>>16) + (l&0xffff) ));
 }
 
 static int handle_outflow(struct inhdr *hdr) {
+    __be16 port = hdr->tcp.source;
+    int *has_port = active_ports.lookup(&port);
+    if (!has_port) {
+        return PASS;
+    }
+
     struct outflow curr_flow = {
         .srcport = hdr->tcp.source,
         .dstport = hdr->tcp.dest,
     };
 
-    struct dst_addr *client = outflows.lookup(&curr_flow);
+    struct dst_addr *client_p = outflows.lookup(&curr_flow);
 
-    if (!client) {
-        bpf_trace_printk("PROXY: nonmatch outflow %d->%d\n",
-                         htons(curr_flow.srcport), htons(curr_flow.dstport));
+    if (!client_p) {
+        //bpf_trace_printk("PROXY: nonmatch outflow %d->%d\n",
+                         //htons(curr_flow.srcport), htons(curr_flow.dstport));
         return PASS;
     }
+    struct dst_addr client = *client_p;
+    if (hdr->tcp.rst || hdr->tcp.fin) {
+        //bpf_trace_printk("PROXY: Deleting outflow\n");
+        outflows.delete(&curr_flow);
 
-    bpf_trace_printk("PROXY: Matched outflow %d:%d->%d\n",
-                     (int)htonl(hdr->ip.saddr), htons(curr_flow.srcport), htons(curr_flow.dstport));
+        struct flow curr_inflow = {
+            .srcaddr = client.addr,
+            .srcport = hdr->tcp.dest,
+            .dstport = hdr->tcp.source
+        };
+        int *idx = inflows.lookup(&curr_inflow);
+        int flowi = -1;
+        if (idx && *idx > 0) {
+            flowi = -*idx;
+        }
+        inflows.update(&curr_inflow, &flowi);
+    }
+
+    //bpf_trace_printk("PROXY: Matched outflow %d:%d->%d\n",
+                     //(int)htonl(hdr->ip.saddr), htons(curr_flow.srcport), htons(curr_flow.dstport));
 
     struct inhdr orig = *hdr;
     memcpy(hdr->eth.h_source, orig.eth.h_dest, sizeof(orig.eth.h_dest));
     hdr->ip.saddr = orig.ip.daddr;
-    hdr->ip.daddr = client->addr;
-    memcpy(hdr->eth.h_dest, client->h_dest, ETH_ALEN);
+    hdr->ip.daddr = client.addr;
+    memcpy(hdr->eth.h_dest, client.h_dest, ETH_ALEN);
 
     hdr->ip.check = incr_check_l(hdr->ip.check,
-            ntohl(orig.ip.saddr), ntohl(client->addr));
+            ntohl(orig.ip.saddr), ntohl(client.addr));
     hdr->tcp.check = incr_check_l(hdr->tcp.check,
-            ntohl(orig.ip.saddr), ntohl(client->addr));
+            ntohl(orig.ip.saddr), ntohl(client.addr));
 
     return REFLECT;
 }
@@ -135,48 +158,63 @@ static int handle_inflow(struct inhdr *hdr) {
         .dstport = hdr->tcp.dest
     };
 
-    int *active_flow = inflows.lookup(&curr_flow);
+    int *active_flow_p = inflows.lookup(&curr_flow);
+    int active_flow = 0;
 
-    if (!active_flow) {
+    if (!active_flow_p) {
         int *has_port = active_ports.lookup(&port);
 
         if (!has_port) {
-            bpf_trace_printk("PROXY: Unknown inport %d:%d->%d\n",
-                            curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
+            //bpf_trace_printk("PROXY: Unknown inport %d:%d->%d\n",
+                            //curr_flow.srcaddr, htons(curr_flow.srcport), htons(curr_flow.dstport));
             return PASS;
         }
 
         if (!*has_port) {
-            bpf_trace_printk("PROXY: Inactive inport\n");
+            //bpf_trace_printk("PROXY: Inactive inport\n");
             return PASS;
         }
 
-        bpf_trace_printk("PROXY: new inflow\n");
+        //bpf_trace_printk("PROXY: new inflow\n");
         int zero = 0;
         unsigned int *new_flow = last_flow.lookup(&zero);
         if (!new_flow) {
+            //bpf_trace_printk("no last flow?\n");
             return PASS;
         }
         unsigned int *max_flow = n_dst_servers.lookup(&zero);
         if (!max_flow) {
+            //bpf_trace_printk("no dst server??\n");
             return PASS;
         }
         *new_flow = (*new_flow + 1) % (*max_flow);
 
         int flow = *new_flow + 1;
 
-        active_flow = inflows.lookup_or_init(&curr_flow, &flow);
-
+        if (hdr->tcp.rst || hdr->tcp.fin) {
+            active_flow = flow;
+            inflows.delete(&curr_flow);
+            //bpf_trace_printk("PROXY: Deleting new inflow\n");
+        } else {
+            active_flow_p = inflows.lookup_or_init(&curr_flow, &flow);
+            active_flow = *active_flow_p;
+        }
+    } else {
+        active_flow = *active_flow_p;
     }
-    if (!active_flow) {
-        bpf_trace_printk("PROXY: inBAD 5\n");
+    if (active_flow == 0) {
+        //bpf_trace_printk("PROXY: inBAD 5\n");
         return PASS;
     }
+    if (hdr->tcp.rst || hdr->tcp.fin || active_flow < 0) {
+        //bpf_trace_printk("PROXY: Deleting old inflow to %d\n", active_flow);
+        inflows.delete(&curr_flow);
+    }
 
-    unsigned int flow = *active_flow - 1;
+    unsigned int flow = active_flow - 1;
     struct dst_addr *dst_server = dst_servers.lookup(&flow);
     if (!dst_server) {
-        bpf_trace_printk("PROXY: inBAD 1\n");
+        //bpf_trace_printk("PROXY: inBAD 1\n");
         return PASS;
     }
 
@@ -184,15 +222,17 @@ static int handle_inflow(struct inhdr *hdr) {
         .dstport = hdr->tcp.source,
         .srcport = hdr->tcp.dest
     };
-    bpf_trace_printk("PROXY: update rtn flow %d:%d->%d\n",
-                      (int)ntohl(hdr->ip.daddr), htons(rtn_flow.srcport), htons(rtn_flow.dstport));
 
     struct dst_addr client = {
         .addr = hdr->ip.saddr,
         .port = hdr->tcp.source,
     };
     memcpy(client.h_dest, hdr->eth.h_source, ETH_ALEN);
-    outflows.update(&rtn_flow, &client);
+    if ((!hdr->tcp.rst) && (!hdr->tcp.fin) && active_flow > 0) {
+        //bpf_trace_printk("PROXY: update rtn flow %d:%d->%d\n",
+        //                  (int)ntohl(hdr->ip.daddr), htons(rtn_flow.srcport), htons(rtn_flow.dstport));
+        outflows.update(&rtn_flow, &client);
+    }
 
     struct inhdr orig = *hdr;
     //memcpy(hdr->eth.h_dest, orig.eth.h_source, sizeof(orig.eth.h_source));
@@ -225,9 +265,9 @@ int monitor_ingress(CTX_TYPE *ctx) {
     }
 
     if (handle_outflow(hdr) == REFLECT) {
-        bpf_trace_printk("REFLECTING OUT\n");
+        //bpf_trace_printk("REFLECTING OUT\n");
         return REFLECT;
     }
-    bpf_trace_printk("PASSING\n");
+    //bpf_trace_printk("PASSING\n");
     return PASS;
 }

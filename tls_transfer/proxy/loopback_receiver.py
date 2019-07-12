@@ -101,6 +101,14 @@ class LBRecv(object):
         except:
             print("Couldn't del flow")
 
+    def add_ack(self, dstaddr, dstport, srcport, ack):
+        flow = Flow(
+                ip2int(dstaddr),
+                ct.c_uint16(socket.htons(dstport)),
+                ct.c_uint16(socket.htons(srcport)))
+
+        self.b['ack_flows'][flow] = ct.c_uint32(ack)
+
     def handle_message(self, msg):
         print("Handling message: %s" % msg)
         jmsg = json.loads(msg)
@@ -115,6 +123,8 @@ class LBRecv(object):
             self.redirect_flow(jmsg['next_id'], jmsg['src_addr'], jmsg['src_port'], jmsg['dst_port'])
         elif jmsg['type'] == 'stop_redirect':
             self.stop_redirect(jmsg['src_addr'], jmsg['src_port'], jmsg['dst_port'])
+        elif jmsg['type'] == 'ack':
+            self.add_ack(jmsg['dst_addr'], jmsg['dst_port'], jmsg['src_port'], jmsg['ack'])
         else:
             print("UNKNOWN TYPE: %s" % jmsg['type'])
 
@@ -125,6 +135,7 @@ class LBRecv(object):
         print(iface + " index is " + str(ifindex))
 
         ing_iface_fn = self.b.load_func('monitor_iface_ingress', BPF.XDP)
+        egr_iface_fn = self.b.load_func('monitor_iface_egress', BPF.SCHED_CLS)
         lo_iface_fn = self.b.load_func('monitor_lo_ingress', BPF.SCHED_CLS)
 
         lo_idx = ip.link_lookup(ifname = 'lo')[0]
@@ -136,6 +147,11 @@ class LBRecv(object):
         except:
             print("Couldn't add clsact")
 
+        try:
+            ip.tc('add', 'clsact', ifindex)
+        except:
+            print("Couldn't add iface clsact")
+
         self.b.remove_xdp(iface, 0)
         self.b.attach_xdp(iface, ing_iface_fn, 0)
 
@@ -143,16 +159,27 @@ class LBRecv(object):
                 fd = lo_iface_fn.fd, name = lo_iface_fn.name,
                 parent ='ffff:fff2', class_id = 1,
                 direct_action=True)
+
+        ip.tc('add-filter', 'bpf', ifindex,
+              fd = egr_iface_fn.fd, name = egr_iface_fn.name,
+              parent = 'ffff:fff3', class_id = 1,
+              direct_action=True)
         try:
             while True:
                 print("Waiting on receive")
                 message = self.sock.recv()
                 self.handle_message(message)
                 self.sock.send("done")
+        except:
+            pass
         finally:
             self.b.remove_xdp(iface, 0)
             try:
                 ip.tc('del', 'clsact', ifindex)
+            except:
+                print("Couldn't del clsact")
+            try:
+                ip.tc('del', 'clsact', lo_idx)
             except:
                 print("Couldn't del clsact")
 
