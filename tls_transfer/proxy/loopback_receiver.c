@@ -277,7 +277,7 @@ int monitor_iface_ingress(CTX_TYPE *ctx) {
     return rtn;
 }
 
-#define IFINDEX 2
+BPF_ARRAY(ifindex, int, 1);
 
 #undef PASS
 #define PASS TC_ACT_OK
@@ -332,8 +332,16 @@ int monitor_iface_egress(struct __sk_buff *ctx) {
 
     ack_flows.delete(&outflow);
 
+#ifdef DEBUG
     bpf_trace_printk("Iface egree: RESPONDING WITH ACK!\n");
-    return bpf_redirect(IFINDEX, BPF_F_INGRESS);
+#endif
+    int zero = 0;
+    int *IFINDEX = ifindex.lookup(&zero);
+    if (!IFINDEX) {
+        bpf_trace_printk("NO IFINDEX\n");
+        return PASS;
+    }
+    return bpf_redirect(*IFINDEX, BPF_F_INGRESS);
 }
 
 int monitor_lo_ingress(struct __sk_buff *ctx) {
@@ -393,7 +401,14 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
     }
     hdr->udp.dest = 1;
     bpf_trace_printk("LO RETURN TO IFACE\n");
-    return bpf_redirect(IFINDEX, BPF_F_INGRESS);
+//#endif
+    int zero = 0;
+    int *IFINDEX = ifindex.lookup(&zero);
+    if (!IFINDEX) {
+        bpf_trace_printk("NO IFINDEX\n");
+        return PASS;
+    }
+    return bpf_redirect(*IFINDEX, BPF_F_INGRESS);
 }
 
 

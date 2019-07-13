@@ -131,6 +131,7 @@ class LBRecv(object):
     def run(self, iface):
         ip = IPRoute()
         ifindex = ip.get_links(ifname = iface)[0]['index']
+        self.b['ifindex'][0] = ct.c_int(ifindex);
 
         print(iface + " index is " + str(ifindex))
 
