@@ -11,6 +11,8 @@ import zmq
 import json
 import arpreq
 
+def log(*args, **kwargs):
+    pass
 
 def ip2int(addr):
     return socket.htonl(struct.unpack('!I', socket.inet_aton(addr))[0])
@@ -53,19 +55,19 @@ class Proxy(object):
         self.sock_loc = 'ipc:///tmp/tsproxy/0'
         self.sock = ctx.socket(zmq.REP)
         self.sock.bind(self.sock_loc)
-        print("Bound sock to %s" % self.sock_loc)
+        log("Bound sock to %s" % self.sock_loc)
 
         self.b = BPF(src_file = src_file)
         self.n_servers = 0
 
     def add_server(self, ip, port, id=None):
-        print("Adding server at %s:%d" % (ip, port))
+        log("Adding server at %s:%d" % (ip, port))
         structip = ip2int(ip)
         mac = arpreq.arpreq(ip)
         if mac is None:
-            print("COULD NOT FIND MAC ADDRESS FOR IP %s"% ip)
+            log("COULD NOT FIND MAC ADDRESS FOR IP %s"% ip)
         macstr = mac.replace(':', '').decode('hex')
-        print("Found mac address: {}, {}".format(mac, macstr))
+        log("Found mac address: {}".format(mac))
         server = DstAddr(macstr, structip, ct.c_uint16(socket.htons(port)))
 
         if id is None:
@@ -78,7 +80,7 @@ class Proxy(object):
 
     def redirect_flow(self, orig_id, next_id, n_sport):
         if orig_id >= self.n_servers or next_id >= self.n_servers:
-            print("A BAD THING HAS HAPPENED")
+            log("A BAD THING HAS HAPPENED")
             return
 
         orig = self.b['dst_servers'][orig_id]
@@ -88,15 +90,15 @@ class Proxy(object):
         try:
             client = self.b['outflows'][outflow]
         except KeyError:
-            print("Could not find outflow")
+            log("Could not find outflow")
             return
 
-        print("Attempting to replace %d:%d->%d %d=>%d" % (client.addr, socket.ntohs(client.port), socket.ntohs(orig.port), orig_id, next_id))
+        log("Attempting to replace %d:%d->%d %d=>%d" % (client.addr, socket.ntohs(client.port), socket.ntohs(orig.port), orig_id, next_id))
 
         inflow = Flow(client.addr, client.port, orig.port)
 
         if inflow not in self.b['inflows']:
-            print("NOT REPLACING WHICH IS WEIRD")
+            log("NOT REPLACING WHICH IS WEIRD")
 
         self.b['inflows'][inflow] = ct.c_int(next_id + 1)
         #self.b['outflows'][new_outflow] = client
@@ -106,13 +108,13 @@ class Proxy(object):
         self.b['active_ports'][ctport] = ct.c_uint32(1)
 
     def handle_message(self, msg):
-        print("Handling message: %s" % msg);
+        log("Handling message: %s" % msg);
         jmsg = json.loads(msg)
         if jmsg['type'] == 'add':
-            print("Handling ADD msg")
+            log("Handling ADD msg")
             self.add_server(jmsg['ip'], jmsg['port'], jmsg['id'])
         if jmsg['type'] == 'redirect':
-            print("Handling REDIRECT msg")
+            log("Handling REDIRECT msg")
             self.redirect_flow(jmsg['orig_id'], jmsg['next_id'], jmsg['n_sport'])
 
     def run(self, iface):
@@ -121,12 +123,12 @@ class Proxy(object):
         ip = IPRoute()
         ifindex = ip.get_links(ifname = iface)[0]['index']
 
-        print("Ifindex of {} is {}".format(iface, ifindex))
+        log("Ifindex of {} is {}".format(iface, ifindex))
 
         try:
             ip.tc('add', 'clsact', ifindex)
         except:
-            print("Couldn't add clsact")
+            log("Couldn't add clsact")
 
         self.b.attach_xdp(iface, ing_fn, 0)
         '''
@@ -137,20 +139,20 @@ class Proxy(object):
                 '''
         try:
             while (True):
-                print("Waiting on receive")
+                log("Waiting on receive")
                 message = self.sock.recv()
                 self.handle_message(message)
                 self.sock.send("done")
         finally:
-            print('inflows', len(self.b['inflows']))
-            print('outflows', len(self.b['outflows']))
+            log('inflows', len(self.b['inflows']))
+            log('outflows', len(self.b['outflows']))
             for i, (flow, x) in enumerate(self.b['inflows'].items()):
-                print(socket.ntohs(flow.srcport), socket.ntohs(flow.dstport), int2ip(flow.srcaddr), x)
+                log(socket.ntohs(flow.srcport), socket.ntohs(flow.dstport), int2ip(flow.srcaddr), x)
             self.b.remove_xdp(iface)
             try:
                 ip.tc('del', 'clsact', ifindex)
             except:
-                print("Couldn't del clsact")
+                log("Couldn't del clsact")
 
 if __name__ == '__main__':
 
@@ -164,6 +166,6 @@ if __name__ == '__main__':
     p = Proxy()
     p.add_port(args.port)
     for i, ip in enumerate(args.ip):
-        print(ip)
+        log(ip)
         p.add_server(ip, args.port, i)
     p.run(args.iface)

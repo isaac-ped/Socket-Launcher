@@ -110,8 +110,8 @@ static int handle_outflow(struct inhdr *hdr) {
     struct dst_addr *client_p = outflows.lookup(&curr_flow);
 
     if (!client_p) {
-        //bpf_trace_printk("PROXY: nonmatch outflow %d->%d\n",
-                         //htons(curr_flow.srcport), htons(curr_flow.dstport));
+        bpf_trace_printk("PROXY: nonmatch outflow %d->%d\n",
+                         htons(curr_flow.srcport), htons(curr_flow.dstport));
         return PASS;
     }
     struct dst_addr client = *client_p;

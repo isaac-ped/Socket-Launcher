@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import ctypes as ct
 from bcc import BPF
 import socket
@@ -9,6 +10,10 @@ from pyroute2 import IPRoute
 import time
 import zmq
 import json
+import arpreq
+
+def log(*args, **kwargs):
+    print(*args, **kwargs)
 
 def ip2int(addr):
     return socket.htonl(struct.unpack('!I', socket.inet_aton(addr))[0])
@@ -16,6 +21,7 @@ def ip2int(addr):
 class DstServer(ct.Structure):
     _pack_ = 1
     _fields_ = [
+            ('h_dest', ct.c_char * 6),
             ('addr', ct.c_uint32)
     ]
 
@@ -38,38 +44,35 @@ class LBRecv(object):
         self.sock_loc = 'ipc:///tmp/tspeer/%d' % id
         self.sock = ctx.socket(zmq.REP)
         self.sock.bind(self.sock_loc)
-        print("Bound sock to %s" % self.sock_loc)
+        log("Bound sock to %s" % self.sock_loc)
 
         self.b = BPF(src_file = src_file)
         self.n_servers = 0
 
-
-    def add_server(self, ip, port, id=None):
-        print("Adding server at %s:%d" % (ip, port))
-        structip = ip2int(ip)
-        server = DstServer(structip)
-
-        if id is None:
-            id = self.n_servers
-
-        self.n_servers = max(self.n_servers, id + 1)
-
-        self.b['dst_servers'][id] = server
-        self.b['n_dst_servers'][0] = ct.c_uint(self.n_servers)
-
     def set_block(self, ip, src, dst, x):
+        log("Setting block to %d", x)
         ctsrc = ct.c_uint16(socket.htons(src))
         ctdst = ct.c_uint16(socket.htons(dst))
         ctip = ip2int(ip)
 
         ds = Flow(ctip, ctsrc, ctdst)
 
-        self.b['blocked_flows'][ds] = ct.c_int32(x)
+        self.b['blocked_flows'][ds] = ct.c_int(x)
 
     def add_server(self, ip, port, id=None):
-        print("Adding server at %s:%d" % (ip, port))
+        log("Adding server at %s:%d" % (ip, port))
         structip = ip2int(ip)
-        server = DstServer(structip)
+        try:
+            mac = arpreq.arpreq(ip)
+            if mac is None:
+                print("COULD NOT FIND MAC ADDRESS FOR IP %s"% ip)
+        except Exception as e:
+            print(e)
+            raise
+
+        macstr = mac.replace(':', '').decode('hex')
+        log("Found mac address: {}".format(mac))
+        server = DstServer(macstr, structip)
 
         if id is None:
             id = self.n_servers
@@ -81,7 +84,7 @@ class LBRecv(object):
 
     def redirect_flow(self, next_id, srcaddr, srcport, dstport):
         if next_id >= self.n_servers:
-            print("A BAD THING HAS HAPPENED");
+            log("A BAD THING HAS HAPPENED");
             return
 
         structip = ip2int(srcaddr)
@@ -99,7 +102,7 @@ class LBRecv(object):
         try:
             del self.b['redirect_flows'][flow]
         except:
-            print("Couldn't del flow")
+            log("Couldn't del flow")
 
     def add_ack(self, dstaddr, dstport, srcport, ack):
         flow = Flow(
@@ -110,7 +113,7 @@ class LBRecv(object):
         self.b['ack_flows'][flow] = ct.c_uint32(ack)
 
     def handle_message(self, msg):
-        print("Handling message: %s" % msg)
+        log("Handling message: %s" % msg)
         jmsg = json.loads(msg)
 
         if jmsg['type'] == 'block':
@@ -126,19 +129,21 @@ class LBRecv(object):
         elif jmsg['type'] == 'ack':
             self.add_ack(jmsg['dst_addr'], jmsg['dst_port'], jmsg['src_port'], jmsg['ack'])
         else:
-            print("UNKNOWN TYPE: %s" % jmsg['type'])
+            log("UNKNOWN TYPE: %s" % jmsg['type'])
 
     def run(self, iface):
         ip = IPRoute()
         ifindex = ip.get_links(ifname = iface)[0]['index']
 
-        print(iface + " index is " + str(ifindex))
+        log(iface + " index is " + str(ifindex))
 
-        ing_iface_fn = self.b.load_func('monitor_iface_ingress', BPF.XDP)
+        ing_iface_fn = self.b.load_func('try_redirect', BPF.XDP)
         egr_iface_fn = self.b.load_func('monitor_iface_egress', BPF.SCHED_CLS)
+        ing_iface_tc_fn = self.b.load_func('check_redirect', BPF.SCHED_CLS)
         lo_iface_fn = self.b.load_func('monitor_lo_ingress', BPF.SCHED_CLS)
 
         lo_idx = ip.link_lookup(ifname = 'lo')[0]
+        print("Lo index is ", str(lo_idx))
 
         self.b['loopback'][ct.c_uint32(0)] = ct.c_int(lo_idx)
 
@@ -160,13 +165,18 @@ class LBRecv(object):
                 parent ='ffff:fff2', class_id = 1,
                 direct_action=True)
 
+        
+        #ip.tc('add-filter', 'bpf', ifindex,
+        #      fd = ing_iface_tc_fn.fd, name = ing_iface_tc_fn.name,
+        #      parent = 'ffff:fff2', class_id = 1,
+        #      direct_action=False)
         ip.tc('add-filter', 'bpf', ifindex,
               fd = egr_iface_fn.fd, name = egr_iface_fn.name,
               parent = 'ffff:fff3', class_id = 1,
               direct_action=True)
         try:
             while True:
-                print("Waiting on receive")
+                log("Waiting on receive")
                 message = self.sock.recv()
                 self.handle_message(message)
                 self.sock.send("done")
@@ -177,11 +187,11 @@ class LBRecv(object):
             try:
                 ip.tc('del', 'clsact', ifindex)
             except:
-                print("Couldn't del clsact")
+                log("Couldn't del clsact")
             try:
                 ip.tc('del', 'clsact', lo_idx)
             except:
-                print("Couldn't del clsact")
+                log("Couldn't del clsact")
 
 if __name__ == '__main__':
 

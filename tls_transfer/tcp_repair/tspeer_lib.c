@@ -548,6 +548,10 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
     if (pthread_mutex_lock(&server->mutex)) {
         perror("pthread mutex lock");
     }
+    enum msg_type t = XFER;
+    int rtn = send_tcp_state(peer->peer_fd, &t, sizeof(t), &state);
+
+    /*
     int rtn = send_tsock_msg(peer->peer_fd, XFER, NULL, 0, NULL);
     if (rtn < 0) {
         logerr("Error sending XFER msg");
@@ -556,7 +560,7 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
     if (send_tcp_state(peer->peer_fd, &state)) {
         logerr("Error sending tcp state");
         return -1;
-    }
+    }*/
 
     if (pthread_mutex_unlock(&server->mutex)) {
         perror("pthread_mutex unlock");
