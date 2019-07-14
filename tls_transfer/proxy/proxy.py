@@ -11,6 +11,9 @@ import zmq
 import json
 import arpreq
 
+def log(*args, **kwargs):
+    return
+
 
 def ip2int(addr):
     return socket.htonl(struct.unpack('!I', socket.inet_aton(addr))[0])
@@ -88,10 +91,10 @@ class Proxy(object):
         try:
             client = self.b['outflows'][outflow]
         except KeyError:
-            print("Could not find outflow")
+            lo("Could not find outflow")
             return
 
-        print("Attempting to replace %d:%d->%d %d=>%d" % (client.addr, socket.ntohs(client.port), socket.ntohs(orig.port), orig_id, next_id))
+        log("Attempting to replace %d:%d->%d %d=>%d" % (client.addr, socket.ntohs(client.port), socket.ntohs(orig.port), orig_id, next_id))
 
         inflow = Flow(client.addr, client.port, orig.port)
 
@@ -106,13 +109,13 @@ class Proxy(object):
         self.b['active_ports'][ctport] = ct.c_uint32(1)
 
     def handle_message(self, msg):
-        print("Handling message: %s" % msg);
+        log("Handling message: %s" % msg);
         jmsg = json.loads(msg)
         if jmsg['type'] == 'add':
-            print("Handling ADD msg")
+            log("Handling ADD msg")
             self.add_server(jmsg['ip'], jmsg['port'], jmsg['id'])
         if jmsg['type'] == 'redirect':
-            print("Handling REDIRECT msg")
+            log("Handling REDIRECT msg")
             self.redirect_flow(jmsg['orig_id'], jmsg['next_id'], jmsg['n_sport'])
 
     def run(self, iface):
