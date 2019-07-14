@@ -8,7 +8,7 @@
 static double __attribute__((__unused__)) get_logtime() {
     struct timespec t;
     //clock_gettime(CLOCK_REALTIME_COARSE, &t);
-    clock_gettime(CLOCK_REALTIME_COARSE, &t);
+    clock_gettime(CLOCK_MONOTONIC, &t);
     return ((int)t.tv_sec % 100)+ (double)t.tv_nsec * 1e-9;
 }
 
@@ -23,7 +23,7 @@ static double __attribute__((__unused__)) get_logtime() {
 
 /** Macro utilized by all loggers **/
 #define log_to_stream(lvl_label, color, f, fmt, ...)\
-        fprintf(f, "" color "%.04f:%u:%s:%d:%s(): " lvl_label ": " fmt ANSI_COLOR_RESET "\n", \
+        fprintf(f, "" color "%f:%u:%s:%d:%s(): " lvl_label ": " fmt ANSI_COLOR_RESET "\n", \
                 LOGTIME, (unsigned int)pthread_self(), __FILE__, __LINE__, __func__, \
                 ##__VA_ARGS__) \
 
@@ -34,7 +34,7 @@ static double __attribute__((__unused__)) get_logtime() {
 
 
 #define logerr(msg, ...) log_at_level("ERR:", ANSI_COLOR_RED, msg, ##__VA_ARGS__)
-#define DO_LOG
+//#define DO_LOG
 
 #ifdef DO_LOG
 
