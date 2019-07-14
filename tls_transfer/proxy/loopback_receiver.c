@@ -102,23 +102,31 @@ static int try_redirect(CTX_TYPE *ctx) {
     int *active_flow = redirect_flows.lookup(&inflow);
 
     if (!active_flow) {
+#ifdef DEBUG
         bpf_trace_printk("REDIRECTION: NON-ACTIVE FLOW %d:%d->%d\n",
                         (int)htonl(inflow.srcaddr),
                         htons(inflow.srcport),
                         htons(inflow.dstport));
+#endif
         return PASS;
     }
+#ifdef DEBUG
     bpf_trace_printk("REDIRECTION: ACTIVE FLOW\n");
+#endif
     int flow = *active_flow;
     struct dst_server *dst_server = dst_servers.lookup(&flow);
     if (!dst_server) {
+#ifdef DEBUG
         bpf_trace_printk("REDIRECTION: BAD 1\n");
+#endif
         return PASS;
     }
 
     struct hdr orig = *hdr;
     if (GROW_HEAD(ctx, (SIZE_DIFF), data_size)) {
+#ifdef DEBUG
         bpf_trace_printk("REDIRECTION: BAD 2\n");
+#endif
         return PASS;
     }
 
@@ -126,7 +134,9 @@ static int try_redirect(CTX_TYPE *ctx) {
     data_end = (void*)(long)ctx->data_end;
     struct proxiedhdr *newhdr = data;
     if (data + sizeof(*newhdr) > data_end) {
+#ifdef DEBUG
         bpf_trace_printk("REDIRECTION: BAD 8\n");
+#endif
         return PASS;
     }
 
@@ -174,7 +184,9 @@ static int try_redirect(CTX_TYPE *ctx) {
             orig_tcplen, new_tcplen);
     newhdr->tcp.check = incr_add_check_l(newhdr->tcp.check, ntohl(newhdr->proxy.orig_daddr));
 */
+#ifdef DEBUG
     bpf_trace_printk("REDIRECTING PACKET\n");
+#endif
     return REFLECT;
 }
 
@@ -185,10 +197,15 @@ static int try_loopback(CTX_TYPE *ctx) {
 
     struct hdr *normhdr = data;
     if (data + sizeof(*normhdr) > data_end) {
+
+#ifdef DEBUG
         bpf_trace_printk("IFACE TOO SMALL\n");
+#endif
         return PASS;
     }
+#ifdef DEBUG
     bpf_trace_printk("Iface got packet with id %u\n", ntohs(normhdr->ip.id));
+#endif
 
     /*
     if (normhdr->ip.protocol == 0x06) {
@@ -212,41 +229,57 @@ static int try_loopback(CTX_TYPE *ctx) {
 
     struct proxiedhdr *hdr = data;
     if (data + sizeof(*hdr) > data_end) {
+#ifdef DEBUG
         bpf_trace_printk("IFACE TOO SMULL\n");
+#endif
         return PASS;
     }
 
 
+#ifdef DEBUG
     bpf_trace_printk("IFACE PROTOCOL IS 0x%x\n", hdr->ip.protocol);
+#endif
     if (hdr->ip.protocol != 0x11) {
         return PASS;
     }
 
     if (hdr->udp.source == 0 && hdr->udp.dest == 0) {
+#ifdef DEBUG
         bpf_trace_printk("IFACE GOT 0 SOURCE AND DEST\n");
+#endif
         return bpf_redirect(1, 0);
     }
     if (hdr->udp.source == 0 && hdr->udp.dest != 1) {
+#ifdef DEBUG
         bpf_trace_printk("IFACE GOT 0 SOURCE BUT BAD DEST \n");
+#endif
         return PASS;
     }
+#ifdef DEBUG
     bpf_trace_printk("IFACE GOT 0 SOURCE AND 1 DEST!!!\n");
+#endif
     struct proxiedhdr orig = *hdr;
 
     if (SHRINK_HEAD(ctx, SIZE_DIFF)) {
+#ifdef DEBUG
         bpf_trace_printk("CLIENT_IN: BAD 1\n");
+#endif
         return PASS;
     }
     data = (void*)(long)ctx->data;
     data_end= (void*)(long)ctx->data_end;
     struct hdr *out = data;
     if (data + sizeof(*out) > data_end) {
+#ifdef DEBUG
         bpf_trace_printk("CLIENT_IN: BAD 2\n");
+#endif
         return PASS;
     }
 
     __be16 newlen = htons(ntohs(orig.ip.tot_len) - SIZE_DIFF);
+#ifdef DEBUG
     bpf_trace_printk("IFACE shrinking packet to size %d\n", (int)ntohs(newlen));
+#endif
 
     out->eth = orig.eth;
     out->ip = orig.ip;
@@ -280,7 +313,9 @@ static int try_loopback(CTX_TYPE *ctx) {
 int monitor_iface_ingress(CTX_TYPE *ctx) {
     int rtn = try_loopback(ctx);
     if (rtn == PASS) {
+#ifdef DEBUG
         bpf_trace_printk("Loopback didn't work\n");
+#endif
         return try_redirect(ctx);
     }
     return rtn;
@@ -294,14 +329,20 @@ int check_redirect(struct __sk_buff *ctx) {
     bpf_skb_pull_data(ctx, sizeof(struct hdr));
     void *data = (void*)(long)ctx->data;
     void *data_end = (void*)(long)ctx->data_end;
+#ifdef DEBUG
     bpf_trace_printk("skb size: %d\n", data_end - data);
+#endif
 
     struct hdr *normhdr = data;
     if (data + sizeof(*normhdr) > data_end) {
+#ifdef DEBUG
         bpf_trace_printk("IFACE REDIR TOO SMALL\n");
+#endif
         return PASS;
     }
+#ifdef DEBUG
     bpf_trace_printk("dstport is %d\n", ntohs(normhdr->tcp.dest));
+#endif
 
     if (normhdr->ip.protocol == 0x06) {
         struct flow inflow = {
@@ -313,7 +354,9 @@ int check_redirect(struct __sk_buff *ctx) {
         int *blocked = blocked_flows.lookup(&inflow);
 
         if (blocked && *blocked) {
+#ifdef DEBUG
             bpf_trace_printk("IFACE REDIR GOT BLOCKED TCP PKT\n");
+#endif
             return bpf_redirect(1, 0);
             //int rtn = loopback.redirect_map(0,0);
             //if (rtn == XDP_ABORTED) {
@@ -321,12 +364,18 @@ int check_redirect(struct __sk_buff *ctx) {
             //}
             //return rtn;
         } else if (blocked){
+#ifdef DEBUG
             bpf_trace_printk("Un-blocked flow %d->%d\n", ntohs(inflow.srcport), ntohs(inflow.dstport));
+#endif
         } else {
+#ifdef DEBUG
             bpf_trace_printk("Non-blocked flow %d->%d\n", ntohs(inflow.srcport), ntohs(inflow.dstport));
+#endif
         }
     }
+#ifdef DEBUG
     bpf_trace_printk("Protocol is: 0x%x, ID: %u\n", normhdr->ip.protocol, ntohs(normhdr->ip.id));
+#endif
     return PASS;
 }
 
@@ -340,7 +389,9 @@ int monitor_iface_egress(struct __sk_buff *ctx) {
 
     struct hdr *hdr = data;
     if (data + sizeof(*hdr) > data_end) {
+#ifdef DEBUG
         bpf_trace_printk("Iface egress too small");
+#endif
         return PASS;
     }
 
@@ -357,7 +408,9 @@ int monitor_iface_egress(struct __sk_buff *ctx) {
     int *ack = ack_flows.lookup(&outflow);
 
     if (!ack) {
+#ifdef DEBUG
         bpf_trace_printk("NO ACK FLOW\n");
+#endif
         return PASS;
     }
 
@@ -389,7 +442,9 @@ int monitor_iface_egress(struct __sk_buff *ctx) {
     int zero = 0;
     int *IFINDEX = ifindex.lookup(&zero);
     if (!IFINDEX) {
+#ifdef DEBUG
         bpf_trace_printk("NO IFINDEX\n");
+#endif
         return PASS;
     }
     return bpf_redirect(*IFINDEX, BPF_F_INGRESS);
@@ -401,7 +456,9 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
 
     struct hdr *normhdr = data;
     if (data + sizeof(*normhdr) > data_end) {
+#ifdef DEBUG
         bpf_trace_printk("LO TOO SMALL\n");
+#endif
         return PASS;
     }
 
@@ -415,28 +472,38 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
         int *blocked = blocked_flows.lookup(&inflow);
 
         if (blocked && *blocked) {
+#ifdef DEBUG
             bpf_trace_printk("LO GOT BLOCKED TCP PKT\n");
+#endif
             return bpf_redirect(1, BPF_F_INGRESS);
         }
         return PASS;
+#ifdef DEBUG
         bpf_trace_printk("LO Nonblocked flow: %d->%d", (int)ntohs(inflow.srcport),
                          (int)ntohs(inflow.dstport));
+#endif
     }
 
     struct proxiedhdr *hdr = data;
     if (data + sizeof(*hdr) > data_end) {
+#ifdef DEBUG
         bpf_trace_printk("LO TOO SMULL\n");
+#endif
         return PASS;
     }
 
+#ifdef DEBUG
     bpf_trace_printk("LO PROTOCOL IS 0x%x\n", hdr->ip.protocol);
+#endif
     if (hdr->ip.protocol != 0x11) {
         return PASS;
     }
 
     if (hdr->udp.source != 0 || hdr->udp.dest != 0) {
+#ifdef DEBUG
         bpf_trace_printk("LO GOT NON-0 SOURCE AND DEST (%d and %d)\n",
                          htons(hdr->udp.source), htons(hdr->udp.dest));
+#endif
         return PASS;
     }
 
@@ -448,16 +515,21 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
 
     int *in = blocked_flows.lookup(&inflow);
     if (in && *in) {
+#ifdef DEBUG
         bpf_trace_printk("LO RETURN TO LO\n");
+#endif
         return bpf_redirect(1, BPF_F_INGRESS);
     }
     hdr->udp.dest = 1;
+#ifdef DEBUG
     bpf_trace_printk("LO RETURN TO IFACE\n");
-//#endif
+#endif
     int zero = 0;
     int *IFINDEX = ifindex.lookup(&zero);
     if (!IFINDEX) {
+#ifdef DEBUG
         bpf_trace_printk("NO IFINDEX\n");
+#endif
         return PASS;
     }
     return bpf_redirect(*IFINDEX, BPF_F_INGRESS);
