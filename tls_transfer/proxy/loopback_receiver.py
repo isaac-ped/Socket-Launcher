@@ -176,7 +176,7 @@ class LBRecv(object):
               direct_action=True)
         try:
             while True:
-                print("Waiting on receive")
+                log("Waiting on receive")
                 message = self.sock.recv()
                 self.handle_message(message)
                 self.sock.send("done")
