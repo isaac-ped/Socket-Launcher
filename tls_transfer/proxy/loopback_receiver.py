@@ -13,6 +13,7 @@ import json
 import arpreq
 
 def log(*args, **kwargs):
+    args = [str(time.time())] + list(args)
     print(*args, **kwargs)
 
 def ip2int(addr):
@@ -111,7 +112,7 @@ class LBRecv(object):
         self.b['ack_flows'][flow] = ct.c_uint32(ack)
 
     def handle_message(self, msg):
-        print("Handling message: %s" % msg)
+        log("Handling message: %s" % msg)
         jmsg = json.loads(msg)
 
         if jmsg['type'] == 'block':
@@ -127,7 +128,7 @@ class LBRecv(object):
         elif jmsg['type'] == 'ack':
             self.add_ack(jmsg['dst_addr'], jmsg['dst_port'], jmsg['src_port'], jmsg['ack'])
         else:
-            print("UNKNOWN TYPE: %s" % jmsg['type'])
+            log("UNKNOWN TYPE: %s" % jmsg['type'])
 
     def run(self, iface):
         ip = IPRoute()
@@ -178,7 +179,8 @@ class LBRecv(object):
                 message = self.sock.recv()
                 self.handle_message(message)
                 self.sock.send("done")
-        except:
+        except Exception as e:
+            print(e)
             pass
         finally:
             self.b.remove_xdp(iface, 0)
