@@ -23,7 +23,7 @@ int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_siz
     };
 
     if (mutex) {
-        loginfo("Locking mutex");
+        loginfo("Locking mutex for %d", type);
         if (pthread_mutex_lock(mutex)) {
             perror("mutex lock");
         }
@@ -33,7 +33,7 @@ int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_siz
         return -1;
     }
     if (mutex) {
-        loginfo("Unlocking mutex");
+        loginfo("Unlocking mutex for %d", type);
         if (pthread_mutex_unlock(mutex)) {
             perror("mutex unlock");
         }
