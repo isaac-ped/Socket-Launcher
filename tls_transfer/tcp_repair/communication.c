@@ -6,21 +6,30 @@
 
 int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_size,
                    pthread_mutex_t *mutex) {
+
+    struct tsock_hdr hdr = {type};
+    struct iovec vec[] = {
+        {
+            .iov_base = &hdr,
+            .iov_len = sizeof(hdr)
+        }, {
+            .iov_base = payload,
+            .iov_len = payload_size
+        }
+    };
+    struct msghdr msg = {
+        .msg_iov = vec,
+        .msg_iovlen = 2
+    };
+
     if (mutex) {
         loginfo("Locking mutex");
         if (pthread_mutex_lock(mutex)) {
             perror("mutex lock");
         }
     }
-    struct tsock_hdr hdr = {type};
-    if (send(fd, &hdr, sizeof(hdr), 0) != sizeof(hdr)) {
-        perror("Sending hdr");
-        return -1;
-    }
-
-    loginfo("Send to %d", fd);
-    if (send(fd, payload, payload_size, 0) != payload_size) {
-        perror("Sending payload");
+    if (sendmsg(fd, &msg, 0) != payload_size + sizeof(hdr)) {
+        perror("Sending message");
         return -1;
     }
     if (mutex) {
