@@ -13,6 +13,7 @@ import json
 import arpreq
 
 def log(*args, **kwargs):
+    return
     args = [str(time.time())] + list(args)
     print(*args, **kwargs)
 
