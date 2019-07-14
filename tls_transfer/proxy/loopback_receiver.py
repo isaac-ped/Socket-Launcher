@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+from __future__ import print_function
 import ctypes as ct
 from bcc import BPF
 import socket
@@ -9,6 +10,10 @@ from pyroute2 import IPRoute
 import time
 import zmq
 import json
+import arpreq
+
+def log(*args, **kwargs):
+    print(*args, **kwargs)
 
 def ip2int(addr):
     return socket.htonl(struct.unpack('!I', socket.inet_aton(addr))[0])
@@ -16,6 +21,7 @@ def ip2int(addr):
 class DstServer(ct.Structure):
     _pack_ = 1
     _fields_ = [
+            ('h_dest', ct.c_char * 6),
             ('addr', ct.c_uint32)
     ]
 
@@ -43,20 +49,6 @@ class LBRecv(object):
         self.b = BPF(src_file = src_file)
         self.n_servers = 0
 
-
-    def add_server(self, ip, port, id=None):
-        print("Adding server at %s:%d" % (ip, port))
-        structip = ip2int(ip)
-        server = DstServer(structip)
-
-        if id is None:
-            id = self.n_servers
-
-        self.n_servers = max(self.n_servers, id + 1)
-
-        self.b['dst_servers'][id] = server
-        self.b['n_dst_servers'][0] = ct.c_uint(self.n_servers)
-
     def set_block(self, ip, src, dst, x):
         ctsrc = ct.c_uint16(socket.htons(src))
         ctdst = ct.c_uint16(socket.htons(dst))
@@ -69,7 +61,16 @@ class LBRecv(object):
     def add_server(self, ip, port, id=None):
         print("Adding server at %s:%d" % (ip, port))
         structip = ip2int(ip)
-        server = DstServer(structip)
+        print("Made int")
+        mac = arpreq.arpreq(ip)
+        print("MAC", mac)
+        if mac is None:
+            print("COULD NOT FIND MAC ADDRESS FOR IP %s"% ip)
+            raise
+
+        log("Found mac address: {}".format(mac))
+        macstr = mac.replace(':', '').decode('hex')
+        server = DstServer(macstr, structip)
 
         if id is None:
             id = self.n_servers
@@ -137,6 +138,7 @@ class LBRecv(object):
 
         ing_iface_fn = self.b.load_func('monitor_iface_ingress', BPF.XDP)
         egr_iface_fn = self.b.load_func('monitor_iface_egress', BPF.SCHED_CLS)
+        ing_iface_tc_fn = self.b.load_func('check_redirect', BPF.SCHED_CLS)
         lo_iface_fn = self.b.load_func('monitor_lo_ingress', BPF.SCHED_CLS)
 
         lo_idx = ip.link_lookup(ifname = 'lo')[0]
@@ -161,6 +163,11 @@ class LBRecv(object):
                 parent ='ffff:fff2', class_id = 1,
                 direct_action=True)
 
+
+        ip.tc('add-filter', 'bpf', ifindex,
+              fd = ing_iface_tc_fn.fd, name = ing_iface_tc_fn.name,
+              parent = 'ffff:fff2', class_id = 1,
+              direct_action=True)
         ip.tc('add-filter', 'bpf', ifindex,
               fd = egr_iface_fn.fd, name = egr_iface_fn.name,
               parent = 'ffff:fff3', class_id = 1,
