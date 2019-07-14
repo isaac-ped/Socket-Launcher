@@ -37,7 +37,7 @@ void destroy_tcp_state(struct tcp_state *state);
 
 void print_tcp_state(struct tcp_state *state);
 
-int send_tcp_state(int fd, struct tcp_state *state);
+int send_tcp_state(int fd, void *prefix, size_t prefix_size, struct tcp_state *state);
 
 int recv_tcp_state(int fd, struct tcp_state *state);
 

@@ -254,7 +254,7 @@ void destroy_tcp_state(struct tcp_state *state) {
     destroy_tcp_qstate(&state->snd);
 }
 
-static int send_tcp_qstate(int fd, struct tcp_qstate *qstate) {
+static int __attribute__((__unused__)) send_tcp_qstate(int fd, struct tcp_qstate *qstate) {
     ssize_t sent;
     if ((sent = send(fd, &qstate->hdr, sizeof(qstate->hdr), 0)) != sizeof(qstate->hdr)) {
         perror("Error sending qstate hdr");
@@ -268,8 +268,33 @@ static int send_tcp_qstate(int fd, struct tcp_qstate *qstate) {
     return 0;
 }
 
-int send_tcp_state(int fd, struct tcp_state *state) {
+int send_tcp_state(int fd, void *prefix, size_t prefix_size, struct tcp_state *state) {
     ssize_t sent;
+
+    struct iovec iov[] = {
+        {prefix, prefix_size},
+        {&state->caddr, sizeof(state->caddr)},
+        {&state->rcv.hdr, sizeof(state->rcv.hdr)},
+        {state->rcv.msg_iov[0].iov_base, state->rcv.msg_iov[0].iov_len},
+        {&state->snd.hdr, sizeof(state->snd.hdr)},
+        {state->snd.msg_iov[0].iov_base, state->snd.msg_iov[0].iov_len}
+    };
+
+    size_t tot_size = prefix_size + sizeof(state->caddr) + \
+                      sizeof(state->rcv.hdr) + state->rcv.msg_iov[0].iov_len + \
+                      sizeof(state->snd.hdr) + state->snd.msg_iov[0].iov_len;
+
+    struct msghdr hdr = {
+        .msg_iov = iov,
+        .msg_iovlen = 6
+    };
+
+    if ((sent = sendmsg(fd, &hdr, 0)) != tot_size) {
+        perror("Error sendmsging");
+        logerr("Wrote %zd/%zu", sent, tot_size);
+    }
+    return 0;
+/*
     if ((sent = send(fd, &state->caddr, sizeof(state->caddr), 0))
             != sizeof(state->caddr)) {
         perror("Sending dst_addr and src_port");
@@ -284,6 +309,7 @@ int send_tcp_state(int fd, struct tcp_state *state) {
         logerr("Error sending snd state");
         return -1;
     }
+    */
     return 0;
 }
 

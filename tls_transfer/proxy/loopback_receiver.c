@@ -190,6 +190,7 @@ static int try_loopback(CTX_TYPE *ctx) {
     }
     bpf_trace_printk("Iface got packet with id %u\n", ntohs(normhdr->ip.id));
 
+    /*
     if (normhdr->ip.protocol == 0x06) {
         struct flow inflow = {
             .srcaddr = normhdr->ip.saddr,
@@ -207,7 +208,7 @@ static int try_loopback(CTX_TYPE *ctx) {
         } else {
             bpf_trace_printk("Id %u not blocked", ntohs(normhdr->ip.id));
         }
-    }
+    }*/
 
     struct proxiedhdr *hdr = data;
     if (data + sizeof(*hdr) > data_end) {

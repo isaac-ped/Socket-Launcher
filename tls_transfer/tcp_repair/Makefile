@@ -2,7 +2,7 @@ CC?=gcc
 CFLAGS+=-Wall -g -O3 --std=gnu99 -fPIC
 LFLAGS+=-lpthread -lzmq
 
-TARGETS=repair_sender repair_receiver
+#TARGETS=repair_sender repair_receiver
 TARGETS+=tspeer echo_server eb_echo_server eb_tspeer eb_notspeer
 OBJS=tcp_repair.o tspeer_lib.o communication.o file-db-pool.o
 DEPS=tcp_repair.h communication.h logging.h
