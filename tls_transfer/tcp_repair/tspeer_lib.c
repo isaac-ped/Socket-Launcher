@@ -509,7 +509,7 @@ static int handle_prep(struct tsock_peer *peer, struct tsock_server *server) {
         return -1;
     }*/
 
-    if (block_delivery(&msg.client_addr, &server->app_addr)) {
+    if (block_delivery(&msg.client_addr, &server->app_addr, -1)) {
         logerr("Error blocking delivery for prep");
         return -1;
     }
