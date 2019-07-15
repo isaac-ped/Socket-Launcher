@@ -271,12 +271,12 @@ struct tsock_server *init_tsock_server(struct sockaddr_in *ctl_addr,
                                        struct sockaddr_in *app_addr,
                                        struct sockaddr_in *proxy_addr,
                                        int id) {
-    int ctl_fd = create_listening_fd(ctl_addr);
+    int ctl_fd = create_listening_fd(ctl_addr, true);
     if (ctl_fd < 0) {
         logerr("Could not create ctl fd");
         return NULL;
     }
-    int app_fd = create_listening_fd(app_addr);
+    int app_fd = create_listening_fd(app_addr, false);
     if (app_fd < 0) {
         logerr("could not create app fd");
         return NULL;

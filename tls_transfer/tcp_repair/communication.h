@@ -2,6 +2,7 @@
 #define COMMUNICATION_H_
 
 #include <netinet/ip.h>
+#include <stdbool.h>
 
 enum msg_type {
     HELLO,
@@ -45,6 +46,6 @@ struct redirected_msg {
     int new_fd;
 };
 
-int create_listening_fd(struct sockaddr_in *addr);
+int create_listening_fd(struct sockaddr_in *addr, bool quickack);
 int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_size, pthread_mutex_t *mutex);
 #endif
