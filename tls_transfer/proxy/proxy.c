@@ -81,7 +81,11 @@ __u32 l;
 old_check = ~ntohs(old_check);
 old = ~old;
 l = (__u32)old_check + old + new;
-return htons(~( (__u16)(l>>16) + (l&0xffff) ));
+__u16 rtn = htons(~( (__u16)(l>>16) + (l&0xffff) ));
+if (rtn == 0xffff) {
+    return 0xfeff;
+}
+return rtn;
 }
 
 /* Incrementaly update a checksum, given old and new 32bit words */
@@ -92,7 +96,11 @@ old_check = ~ntohs(old_check);
 old = ~old;
 l = (__u32)old_check + (old>>16) + (old&0xffff)
 + (new>>16) + (new&0xffff);
-return htons(~( (__u16)(l>>16) + (l&0xffff) ));
+__u16 rtn = htons(~( (__u16)(l>>16) + (l&0xffff) ));
+if (rtn == 0xffff) {
+    return 0xfeff;
+}
+return rtn;
 }
 
 static int handle_outflow(struct inhdr *hdr) {

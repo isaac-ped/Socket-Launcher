@@ -91,7 +91,7 @@ class Proxy(object):
         try:
             client = self.b['outflows'][outflow]
         except KeyError:
-            lo("Could not find outflow")
+            log("Could not find outflow")
             return
 
         log("Attempting to replace %d:%d->%d %d=>%d" % (client.addr, socket.ntohs(client.port), socket.ntohs(orig.port), orig_id, next_id))
