@@ -161,7 +161,7 @@ int main(int argc, char **argv) {
         int rtn = 0;
         for (int n=0; n < nfds; ++n) {
             if (events[n].data.fd == server->epollfd) {
-                int newfd = tsock_accept(server, 500);
+                int newfd = tsock_accept(server, 0);
                 if (newfd == -1) {
                     logerr("Accept returned -1");
                     rtn = -1;

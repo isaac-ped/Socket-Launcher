@@ -34,7 +34,7 @@ static double __attribute__((__unused__)) get_logtime() {
 
 
 #define logerr(msg, ...) log_at_level("ERR:", ANSI_COLOR_RED, msg, ##__VA_ARGS__)
-//#define DO_LOG
+#define DO_LOG
 
 #ifdef DO_LOG
 

@@ -155,6 +155,7 @@ class LBRecv(object):
         lo_iface_fn = self.b.load_func('monitor_lo_ingress', BPF.SCHED_CLS)
 
         lo_idx = ip.link_lookup(ifname = 'lo')[0]
+        print("LO index id " + str(lo_idx))
 
         self.b['loopback'][ct.c_uint32(0)] = ct.c_int(lo_idx)
 

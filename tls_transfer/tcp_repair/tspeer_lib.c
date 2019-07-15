@@ -46,7 +46,6 @@ static int init_connection(struct tsock_server *self, struct sockaddr_in *peer_a
 }
 
 
-#define MAX_EPOLL_EVENTS 10
 #define MAX_RECV_BUFF 1024
 
 struct peer_args {
@@ -538,11 +537,11 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
         logerr("Error unblocking delivery");
         return -1;
     }
-
+/*
     if (pthread_mutex_unlock(&server->mutex)) {
         perror("pthread_mutex unlock");
     }
-
+*/
     struct redirect_msg re_msg = {
         .old_fd = msg.orig_fd,
         .n_sport = msg.client_addr.sin_port,
@@ -559,29 +558,26 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
     return 0;
 }
 
-
+#define MAX_EPOLL_EVENTS 16
 
 int tsock_accept(struct tsock_server *server, int timeout_ms) {
     if (!server->running) {
         return -1;
     }
-    struct epoll_event event;
-    while (1) {
-        int rtn = epoll_wait(server->epollfd, &event, 1, timeout_ms);
-        if (rtn < 0) {
-            perror("epoll_wait");
-            return -1;
-        }
-        if (rtn == 0) {
-            return 0;
-        }
-        if (!(event.events & EPOLLIN)) {
-            logerr("Got non-EPOLLIN on %d", event.data.u32);
+    struct epoll_event events[MAX_EPOLL_EVENTS];
+    int n_evt = epoll_wait(server->epollfd, events, MAX_EPOLL_EVENTS, timeout_ms);
+    if (n_evt < 0) {
+        perror("epoll_wait");
+        return -1;
+    }
+    for (int i=0; i < n_evt; i++) {
+        if (!(events[i].events & EPOLLIN)) {
+            logerr("Got non-EPOLLIN on %d", events[i].data.u32);
             return -1;
         }
 
-        loginfo("Activity on num %ud", event.data.u32);
-        if (event.data.u32 == MAX_PEERS) {
+        loginfo("Activity on num %ud", events[i].data.u32);
+        if (events[i].data.u32 == MAX_PEERS) {
             int rtn = accept(server->app_fd, NULL, NULL);
             if (rtn < 0) {
                 perror("accept on app_fd");
@@ -590,12 +586,12 @@ int tsock_accept(struct tsock_server *server, int timeout_ms) {
         }
         int peer_fd;
         struct tsock_peer *peer = NULL;
-        if (event.data.u32 == MAX_PEERS + 1) {
+        if (events[i].data.u32 == MAX_PEERS + 1) {
             loginfo("Activity was proxy");
             peer_fd = server->proxy_fd;
         } else {
             loginfo("Activity was peer");
-            peer = &server->peers[event.data.u32];
+            peer = &server->peers[events[i].data.u32];
             peer_fd = peer->peer_fd;
         }
         struct tsock_hdr hdr;

@@ -301,6 +301,16 @@ int send_tcp_state(int fd, void *prefix, size_t prefix_size, struct tcp_state *s
         perror("Error sendmsging");
         logerr("Wrote %zd/%zu", sent, tot_size);
     }
+
+    int opt = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &opt, sizeof(opt))) {
+        perror("QUICKACK");
+        return -1;
+    }
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+        perror("TCP_NODELAY");
+        return -1;
+    }
     return 0;
 /*
     if ((sent = send(fd, &state->caddr, sizeof(state->caddr), 0))
