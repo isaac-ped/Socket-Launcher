@@ -478,16 +478,17 @@ int handle_redirected(int proxy_fd, struct tsock_server *server) {
         return -1;
     }
 
+    /*
     struct sockaddr_in client_addr;
     socklen_t socklen = sizeof(client_addr);
     if (getpeername(msg.old_fd, (struct sockaddr*)&client_addr, &socklen)) {
         perror("Getting peername for DO_XFER");
         return -1;
     }
+    */
+    //close(msg.old_fd);
 
-    close(msg.old_fd);
-
-    if (send_stop_redirect(&client_addr, &server->app_addr)) {
+    if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
         logerr("Error sending STOP REDIRECT");
         return -1;
     }
@@ -503,11 +504,11 @@ static int handle_prep(struct tsock_peer *peer, struct tsock_server *server) {
         return -1;
     }
 
-    /*
+    
     if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
         logerr("Error sending STOP REDIRECT");
         return -1;
-    }*/
+    }
 
     if (block_delivery(&msg.client_addr, &server->app_addr, -1)) {
         logerr("Error blocking delivery for prep");
@@ -546,6 +547,7 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
         return -1;
     }
 
+    close(msg.orig_fd);
     if (pthread_mutex_lock(&server->mutex)) {
         perror("pthread mutex lock");
     }
@@ -571,7 +573,8 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
         .old_fd = msg.orig_fd,
         .n_sport = msg.client_addr.sin_port,
         .orig_peer = server->local_id,
-        .next_peer = peer->peer_id
+        .next_peer = peer->peer_id,
+        .client_addr = msg.client_addr
     };
 
     rtn = send_tsock_msg(server->proxy_fd, REDIRECT, &re_msg, sizeof(re_msg), &proxy_mutex);

@@ -33,6 +33,7 @@ struct redirect_msg {
     short n_sport;
     unsigned int orig_peer;
     unsigned int next_peer;
+    struct sockaddr_in client_addr;
 };
 
 struct undrop_msg {

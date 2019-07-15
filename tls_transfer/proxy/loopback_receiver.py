@@ -13,6 +13,7 @@ import json
 import arpreq
 
 def log(*args, **kwargs):
+    return
     args = [str(time.time())] + list(args)
     print(*args, **kwargs)
 
@@ -95,7 +96,7 @@ class LBRecv(object):
         structip = ip2int(srcaddr)
         flow = Flow(structip, ct.c_uint16(socket.htons(srcport)),
                     ct.c_uint16(socket.htons(dstport)))
-        print("Redirecting %s:%d" % (srcaddr, srcport))
+        log("Redirecting %s:%d" % (srcaddr, srcport))
 
         self.b['redirect_flows'][flow] = ct.c_uint(next_id)
 

@@ -5,7 +5,7 @@
 #include <uapi/linux/bpf.h>
 #include <uapi/linux/pkt_cls.h>
 
-#define DEBUG
+//#define DEBUG
 
 struct __attribute__((__packed__)) proxyhdr {
     __be32 orig_saddr;
