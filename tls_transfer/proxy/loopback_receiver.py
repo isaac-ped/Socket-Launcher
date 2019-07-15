@@ -13,7 +13,6 @@ import json
 import arpreq
 
 def log(*args, **kwargs):
-    return
     args = [str(time.time())] + list(args)
     print(*args, **kwargs)
 
@@ -51,14 +50,20 @@ class LBRecv(object):
         self.b = BPF(src_file = src_file)
         self.n_servers = 0
 
-    def set_block(self, ip, src, dst, x):
+    def set_block(self, ip, src, dst, towards):
         ctsrc = ct.c_uint16(socket.htons(src))
         ctdst = ct.c_uint16(socket.htons(dst))
         ctip = ip2int(ip)
 
         ds = Flow(ctip, ctsrc, ctdst)
 
-        self.b['blocked_flows'][ds] = ct.c_int32(x)
+        if towards == -2:
+            try:
+                del self.b['blocked_flows'][ds]
+            except Exception as e:
+                print("Could not block flow %s"% e)
+        else:
+            self.b['blocked_flows'][ds] = ct.c_int32(towards)
 
     def add_server(self, ip, port, id=None):
         print("Adding server at %s:%d" % (ip, port))
@@ -90,6 +95,7 @@ class LBRecv(object):
         structip = ip2int(srcaddr)
         flow = Flow(structip, ct.c_uint16(socket.htons(srcport)),
                     ct.c_uint16(socket.htons(dstport)))
+        print("Redirecting %s:%d" % (srcaddr, srcport))
 
         self.b['redirect_flows'][flow] = ct.c_uint(next_id)
 
@@ -102,7 +108,7 @@ class LBRecv(object):
         try:
             del self.b['redirect_flows'][flow]
         except:
-            print("Couldn't del flow")
+            print("Couldn't del flow %s:%d" % (srcaddr, srcport))
 
     def add_ack(self, dstaddr, dstport, srcport, ack):
         flow = Flow(
@@ -117,9 +123,9 @@ class LBRecv(object):
         jmsg = json.loads(msg)
 
         if jmsg['type'] == 'block':
-            self.set_block(jmsg['ip'], jmsg['src_port'], jmsg['dst_port'], 1)
+            self.set_block(jmsg['ip'], jmsg['src_port'], jmsg['dst_port'], jmsg['towards'])
         elif jmsg['type'] == 'unblock':
-            self.set_block(jmsg['ip'], jmsg['src_port'], jmsg['dst_port'], 0)
+            self.set_block(jmsg['ip'], jmsg['src_port'], jmsg['dst_port'], -2)
         elif jmsg['type'] == 'add_peer':
             self.add_server(jmsg['ip'], jmsg['port'], jmsg['id'])
         elif jmsg['type'] == 'redirect':
@@ -138,9 +144,13 @@ class LBRecv(object):
 
         print(iface + " index is " + str(ifindex))
 
+        print("Loading monitor ingress")
         ing_iface_fn = self.b.load_func('monitor_iface_ingress', BPF.XDP)
+        print("Loading monitor egress")
         egr_iface_fn = self.b.load_func('monitor_iface_egress', BPF.SCHED_CLS)
+        print("Loading check redir")
         ing_iface_tc_fn = self.b.load_func('check_redirect', BPF.SCHED_CLS)
+        print("Loading monitor lo")
         lo_iface_fn = self.b.load_func('monitor_lo_ingress', BPF.SCHED_CLS)
 
         lo_idx = ip.link_lookup(ifname = 'lo')[0]

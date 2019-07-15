@@ -163,10 +163,11 @@ static int do_ack(struct sockaddr_in *client_addr, struct sockaddr_in *app_addr,
     return 0;
 }
 
-#define X_BLOCK_TEMPLATE "{\"type\": \"%s\", \"ip\": \"%s\", \"src_port\": %s, \"dst_port\": %s}"
+#define X_BLOCK_TEMPLATE "{\"type\": \"%s\", \"ip\": \"%s\", \"src_port\": %s, \"dst_port\": %s, \"towards\": %d}"
 static int x_block_delivery(char *x,
                             struct sockaddr_in *client_addr,
-                            struct sockaddr_in *app_addr) {
+                            struct sockaddr_in *app_addr,
+                            int towards) {
     char ip[16], port[8];
     if (get_ip_and_port(client_addr, ip, port)) {
         return -1;
@@ -179,7 +180,7 @@ static int x_block_delivery(char *x,
     char block_msg[1024];
     size_t n = snprintf(block_msg, sizeof(block_msg),
                         X_BLOCK_TEMPLATE,
-                        x, ip, port, app_port);
+                        x, ip, port, app_port, towards);
     pthread_mutex_lock(&zmq_mutex);
     zmq_send(requester, block_msg, n, 0);
     int size = zmq_recv(requester, block_msg, 1024, 0);
@@ -191,8 +192,8 @@ static int x_block_delivery(char *x,
     return 0;
 }
 
-static int block_delivery(struct sockaddr_in *client_addr, struct sockaddr_in *app_addr) {
-    if (x_block_delivery("block", client_addr, app_addr)) {
+static int block_delivery(struct sockaddr_in *client_addr, struct sockaddr_in *app_addr, int towards) {
+    if (x_block_delivery("block", client_addr, app_addr, towards)) {
         logerr("Error blocking delivery");
         return -1;
     }
@@ -200,7 +201,7 @@ static int block_delivery(struct sockaddr_in *client_addr, struct sockaddr_in *a
 }
 
 static int unblock_delivery(struct sockaddr_in *client_addr, struct sockaddr_in *app_addr) {
-    if (x_block_delivery("unblock", client_addr, app_addr)) {
+    if (x_block_delivery("unblock", client_addr, app_addr, -1)) {
         logerr("Error unblocking delivery");
         return -1;
     }
@@ -454,7 +455,7 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
         perror("Getting peer name");
         return -1;
     }
-    if (block_delivery(&prep.client_addr, &server->app_addr)) {
+    if (block_delivery(&prep.client_addr, &server->app_addr, peer_id)) {
         logerr("Error blocking delivery");
     }
     loginfo("Transferring :%d to %d", ntohs(prep.client_addr.sin_port), peer_id);
@@ -485,12 +486,11 @@ int handle_redirected(int proxy_fd, struct tsock_server *server) {
     }
 
     close(msg.old_fd);
-/*
+
     if (send_stop_redirect(&client_addr, &server->app_addr)) {
         logerr("Error sending STOP REDIRECT");
         return -1;
     }
-*/
     return 0;
 }
 
@@ -503,10 +503,11 @@ static int handle_prep(struct tsock_peer *peer, struct tsock_server *server) {
         return -1;
     }
 
+    /*
     if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
         logerr("Error sending STOP REDIRECT");
         return -1;
-    }
+    }*/
 
     if (block_delivery(&msg.client_addr, &server->app_addr)) {
         logerr("Error blocking delivery for prep");

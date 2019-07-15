@@ -5,6 +5,7 @@
 #include <uapi/linux/bpf.h>
 #include <uapi/linux/pkt_cls.h>
 
+#define DEBUG
 
 struct __attribute__((__packed__)) proxyhdr {
     __be32 orig_saddr;
@@ -84,13 +85,13 @@ BPF_HASH(redirect_flows, struct flow, int);
 BPF_ARRAY(dst_servers, struct dst_server);
 BPF_ARRAY(n_dst_servers, unsigned int, 1);
 
-static int try_redirect(CTX_TYPE *ctx) {
+static int add_proxied_hdr(CTX_TYPE *ctx) {
     void *data = (void*)(long)ctx->data;
     void *data_end = (void*)(long)ctx->data_end;
 
     struct hdr *hdr = data;
     if (data + sizeof(*hdr) > data_end) {
-        return PASS;
+        return 0;
     }
 
     struct flow inflow = {
@@ -99,27 +100,40 @@ static int try_redirect(CTX_TYPE *ctx) {
         .dstport = hdr->tcp.dest
     };
 
-    int *active_flow = redirect_flows.lookup(&inflow);
+    int *active_flow_p = redirect_flows.lookup(&inflow);
+    int is_blocked = 0;
+    int active_flow = 0;
 
-    if (!active_flow) {
+    if (!active_flow_p) {
 #ifdef DEBUG
         bpf_trace_printk("REDIRECTION: NON-ACTIVE FLOW %d:%d->%d\n",
                         (int)htonl(inflow.srcaddr),
                         htons(inflow.srcport),
                         htons(inflow.dstport));
 #endif
-        return PASS;
+        int *blocked_flow = blocked_flows.lookup(&inflow);
+        if (!blocked_flow) {
+            return 0;
+        }
+        if (*blocked_flow == -1) {
+            return 0;
+        }
+        bpf_trace_printk("REDIRECTION: Got blocked flow %u", ntohs(hdr->ip.id));
+        is_blocked = 1;
+        active_flow = *blocked_flow;
+    } else {
+        active_flow = *active_flow_p;
     }
 #ifdef DEBUG
     bpf_trace_printk("REDIRECTION: ACTIVE FLOW\n");
 #endif
-    int flow = *active_flow;
+    int flow = active_flow;
     struct dst_server *dst_server = dst_servers.lookup(&flow);
     if (!dst_server) {
 #ifdef DEBUG
         bpf_trace_printk("REDIRECTION: BAD 1\n");
 #endif
-        return PASS;
+        return 0;
     }
 
     struct hdr orig = *hdr;
@@ -127,7 +141,7 @@ static int try_redirect(CTX_TYPE *ctx) {
 #ifdef DEBUG
         bpf_trace_printk("REDIRECTION: BAD 2\n");
 #endif
-        return PASS;
+        return 0;
     }
 
     data = (void*)(long)ctx->data;
@@ -137,7 +151,7 @@ static int try_redirect(CTX_TYPE *ctx) {
 #ifdef DEBUG
         bpf_trace_printk("REDIRECTION: BAD 8\n");
 #endif
-        return PASS;
+        return 0;
     }
 
     __be16 newlen = htons(ntohs(orig.ip.tot_len) + SIZE_DIFF);
@@ -156,7 +170,11 @@ static int try_redirect(CTX_TYPE *ctx) {
     newhdr->proxy.orig_daddr = orig.ip.daddr;
     newhdr->tcp = orig.tcp;
     newhdr->udp.source = 0;
-    newhdr->udp.dest = 1;
+    if (is_blocked) {
+        newhdr->udp.dest = 2;
+    } else {
+        newhdr->udp.dest = 1;
+    }
     newhdr->udp.len = htons(ntohs(newlen) - sizeof(struct iphdr));
     newhdr->udp.check = 0;
 
@@ -187,10 +205,10 @@ static int try_redirect(CTX_TYPE *ctx) {
 #ifdef DEBUG
     bpf_trace_printk("REDIRECTING PACKET\n");
 #endif
-    return REFLECT;
+    return is_blocked == 0 ? 1 : 0;
 }
 
-static int try_loopback(CTX_TYPE *ctx) {
+static int rm_proxied_hdr(CTX_TYPE *ctx) {
 
     void *data = (void*)(long)ctx->data;
     void *data_end = (void*)(long)ctx->data_end;
@@ -206,26 +224,6 @@ static int try_loopback(CTX_TYPE *ctx) {
 #ifdef DEBUG
     bpf_trace_printk("Iface got packet with id %u\n", ntohs(normhdr->ip.id));
 #endif
-
-    /*
-    if (normhdr->ip.protocol == 0x06) {
-        struct flow inflow = {
-            .srcaddr = normhdr->ip.saddr,
-            .srcport = normhdr->tcp.source,
-            .dstport = normhdr->tcp.dest
-        };
-
-        int *blocked = blocked_flows.lookup(&inflow);
-
-        if (blocked && *blocked) {
-            bpf_trace_printk("IFACE GOT BLOCKED TCP PKT\n");
-            return bpf_redirect(1, 0);
-        } else if (blocked) {
-            bpf_trace_printk("Id %u un-blocked", ntohs(normhdr->ip.id));
-        } else {
-            bpf_trace_printk("Id %u not blocked", ntohs(normhdr->ip.id));
-        }
-    }*/
 
     struct proxiedhdr *hdr = data;
     if (data + sizeof(*hdr) > data_end) {
@@ -311,14 +309,12 @@ static int try_loopback(CTX_TYPE *ctx) {
 
 
 int monitor_iface_ingress(CTX_TYPE *ctx) {
-    int rtn = try_loopback(ctx);
-    if (rtn == PASS) {
-#ifdef DEBUG
-        bpf_trace_printk("Loopback didn't work\n");
-#endif
-        return try_redirect(ctx);
+    rm_proxied_hdr(ctx);
+    int rtn = add_proxied_hdr(ctx);
+    if (rtn) {
+        return REFLECT;
     }
-    return rtn;
+    return PASS;
 }
 
 BPF_ARRAY(ifindex, int, 1);
@@ -353,16 +349,11 @@ int check_redirect(struct __sk_buff *ctx) {
 
         int *blocked = blocked_flows.lookup(&inflow);
 
-        if (blocked && *blocked) {
+        if (blocked) {
 #ifdef DEBUG
             bpf_trace_printk("IFACE REDIR GOT BLOCKED TCP PKT\n");
 #endif
             return bpf_redirect(1, 0);
-            //int rtn = loopback.redirect_map(0,0);
-            //if (rtn == XDP_ABORTED) {
-            //    bpf_trace_printk("WARNING: IFACE COULD NOT REDIRECT\n");
-            //}
-            //return rtn;
         } else if (blocked){
 #ifdef DEBUG
             bpf_trace_printk("Un-blocked flow %d->%d\n", ntohs(inflow.srcport), ntohs(inflow.dstport));
@@ -371,6 +362,23 @@ int check_redirect(struct __sk_buff *ctx) {
 #ifdef DEBUG
             bpf_trace_printk("Non-blocked flow %d->%d\n", ntohs(inflow.srcport), ntohs(inflow.dstport));
 #endif
+        }
+    } else if (normhdr->ip.protocol == 0x11) {
+        struct proxiedhdr *hdr = data;
+        if (data + sizeof(*hdr) > data_end) {
+            return PASS;
+        }
+        struct flow inflow = {
+            .srcaddr = hdr->proxy.orig_saddr,
+            .srcport = hdr->tcp.source,
+            .dstport = hdr->tcp.dest
+        };
+
+        int *blocked = blocked_flows.lookup(&inflow);
+
+        if (blocked) {
+            bpf_trace_printk("IFACE REDIR got BLOCKED PROXIED PKT\n");
+            return bpf_redirect(1,0);
         }
     }
 #ifdef DEBUG
@@ -471,17 +479,27 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
 
         int *blocked = blocked_flows.lookup(&inflow);
 
-        if (blocked && *blocked) {
+        if (blocked) {
 #ifdef DEBUG
-            bpf_trace_printk("LO GOT BLOCKED TCP PKT\n");
+            bpf_trace_printk("LO GOT BLOCKED TCP PKT %u\n", ntohs(normhdr->ip.id));
 #endif
             return bpf_redirect(1, BPF_F_INGRESS);
         }
-        return PASS;
+        int zero = 0;
+        int *IFINDEX = ifindex.lookup(&zero);
+        if (!IFINDEX) {
 #ifdef DEBUG
-        bpf_trace_printk("LO Nonblocked flow: %d->%d", (int)ntohs(inflow.srcport),
+            bpf_trace_printk("NO IFINDEX\n");
+#endif
+            return PASS;
+         }
+#ifdef DEBUG
+        bpf_trace_printk("LO Nonblocked flow %u: %d->%d", 
+                        ntohs(normhdr->ip.id),
+                        (int)ntohs(inflow.srcport),
                          (int)ntohs(inflow.dstport));
 #endif
+        return bpf_redirect(*IFINDEX, BPF_F_INGRESS);
     }
 
     struct proxiedhdr *hdr = data;
@@ -499,7 +517,7 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
         return PASS;
     }
 
-    if (hdr->udp.source != 0 || hdr->udp.dest != 0) {
+    if (hdr->udp.source != 0 || hdr->udp.dest != 2) {
 #ifdef DEBUG
         bpf_trace_printk("LO GOT NON-0 SOURCE AND DEST (%d and %d)\n",
                          htons(hdr->udp.source), htons(hdr->udp.dest));
@@ -514,7 +532,7 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
     };
 
     int *in = blocked_flows.lookup(&inflow);
-    if (in && *in) {
+    if (in) {
 #ifdef DEBUG
         bpf_trace_printk("LO RETURN TO LO\n");
 #endif
@@ -522,7 +540,7 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
     }
     hdr->udp.dest = 1;
 #ifdef DEBUG
-    bpf_trace_printk("LO RETURN TO IFACE\n");
+    bpf_trace_printk("LO RETURN %u TO IFACE\n", ntohs(hdr->ip.id));
 #endif
     int zero = 0;
     int *IFINDEX = ifindex.lookup(&zero);
@@ -532,7 +550,9 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
 #endif
         return PASS;
     }
-    return bpf_redirect(*IFINDEX, BPF_F_INGRESS);
+    hdr->udp.dest = 1;
+
+    return bpf_redirect(*IFINDEX, 0);
 }
 
 
