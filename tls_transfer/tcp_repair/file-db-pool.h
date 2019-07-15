@@ -6,8 +6,9 @@ struct thread_pool;
 
 typedef void (*tp_callback)(void *thread_arg, void *shared_arg);
 
-int tp_enqueue(struct thread_pool *tp, void *item);
+float tp_enqueue(struct thread_pool *tp, void *item);
 int tp_terminate(struct thread_pool *tp);
+float tp_fullness(struct thread_pool *tp);
 
 struct thread_pool *init_thread_pool(unsigned int n_threads,
                                      tp_callback callback,

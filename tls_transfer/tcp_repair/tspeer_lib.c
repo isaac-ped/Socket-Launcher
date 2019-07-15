@@ -458,6 +458,7 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
     if (block_delivery(&prep.client_addr, &server->app_addr, peer_id)) {
         logerr("Error blocking delivery");
     }
+    close(fd);
     loginfo("Transferring :%d to %d", ntohs(prep.client_addr.sin_port), peer_id);
 
     int rtn = send_tsock_msg(peer->peer_fd, PREP, &prep, sizeof(prep), &server->mutex);
@@ -547,7 +548,6 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
         return -1;
     }
 
-    close(msg.orig_fd);
     if (pthread_mutex_lock(&server->mutex)) {
         perror("pthread mutex lock");
     }

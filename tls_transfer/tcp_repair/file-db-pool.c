@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <stdbool.h>
 #include <stdlib.h> // Malloc
+#include <math.h>
 #include "file-db-pool.h"
 
 
@@ -57,7 +58,13 @@ int tp_terminate(struct thread_pool *tp) {
     return 0;
 }
 
-int tp_enqueue(struct thread_pool *tp, void *item) {
+float tp_fullness(struct thread_pool *tp) {
+    float raw =  (float)tp->length / (float)tp->max_length;
+    float prob = expl(raw * 20) / ( (expl(raw * 20) + expl(20)));
+    return prob - .001;
+}
+
+float tp_enqueue(struct thread_pool *tp, void *item) {
 
     struct thread_queue *next = malloc(sizeof(*next));
     next->item = item;
@@ -72,11 +79,7 @@ int tp_enqueue(struct thread_pool *tp, void *item) {
             perror("pthread_mutex_unlock");
             return -1;
         }
-        return 1;
     }
-            if (tp->length > 1) {
-                printf("TP LENGTH %d\n", tp->length);
-            }
 
     if (tp->tail) {
         tp->tail->next = next;
@@ -95,7 +98,7 @@ int tp_enqueue(struct thread_pool *tp, void *item) {
         perror("pthread_mutex_unlock");
         return -1;
     }
-    return 0;
+    return (float)tp->length / tp->max_length;
 }
 
 

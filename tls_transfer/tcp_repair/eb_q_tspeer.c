@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    struct thread_pool *tp = init_thread_pool(1, read_loop, NULL, -1);
+    struct thread_pool *tp = init_thread_pool(1, read_loop, NULL, 250);
 
     while (1) {
 
@@ -191,11 +191,26 @@ int main(int argc, char **argv) {
                     return -1;
                 }
             } else {
-                if (ev.events & EPOLLIN) {
-                    tp_enqueue(tp, events[n].data.ptr);
+                float fullness = tp_fullness(tp);
+                if (events[n].events & EPOLLIN) {
+                    int fullchance = fullness * RAND_MAX;
+                    if (rand() < fullchance) {
+                        struct read_arg *arg = events[n].data.ptr;
+                        int fd = arg->fd;
+                        int newid = (local_id + 1) % 2;
+                        if (epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL)) {
+                            perror("epoll_ctl DEL");
+                        } else {
+                            tsock_transfer(tss, newid, fd);
+                        }
+                    } else {
+                        tp_enqueue(tp, events[n].data.ptr);
+                    }
                 } else {
-                    epoll_ctl(epollfd, EPOLL_CTL_DEL, events[n].data.fd, NULL);
-                    close(events[n].data.fd);
+                    struct read_arg *arg = events[n].data.ptr;
+                    int fd = arg->fd;
+                    epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL);
+                    close(fd);
                     free(events[n].data.ptr);
                 }
             }
