@@ -402,7 +402,20 @@ static int handle_xfer(struct tsock_peer *peer,
                        struct tsock_server *server) {
     loginfo("Handling init xfer");
     int peer_fd = peer->peer_fd;
+
+    struct prep_msg msg;
+    ssize_t recvd = recv(peer_fd, &msg, sizeof(msg), 0);
+    if (recvd != sizeof(msg)) {
+        logerr("Weird size prep msg: %zd", recvd);
+    }
+
+    if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
+        logerr("Error sending STOP REDIRECT");
+        return -1;
+    }
+
     int newfd = socket(AF_INET, SOCK_STREAM, 0);
+
     struct tcp_state state;
     init_tcp_state(&state);
     if (recv_tcp_state(peer_fd, &state)) {
@@ -424,13 +437,15 @@ static int handle_xfer(struct tsock_peer *peer,
         logerr("ERROR DUPLICATING PACKETS");
     }
 
-    if (unblock_delivery(&client_addr, &server->app_addr)) {
-        logerr("Unblocking delivery");
-        return -1;
-    }
     int opt = 0;
     if (setsockopt(newfd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
         perror("Unsetting TCP_REPAIR");
+        return -1;
+    }
+
+    int rtn = send_tsock_msg(peer->peer_fd, PREPPED, &msg, sizeof(msg), &server->mutex);
+    if (rtn < 0) {
+        logerr("Error sending PREPPED msg");
         return -1;
     }
 
@@ -455,15 +470,27 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
         perror("Getting peer name");
         return -1;
     }
+
     if (block_delivery(&prep.client_addr, &server->app_addr, peer_id)) {
         logerr("Error blocking delivery");
     }
-    loginfo("Transferring :%d to %d", ntohs(prep.client_addr.sin_port), peer_id);
 
-    int rtn = send_tsock_msg(peer->peer_fd, PREP, &prep, sizeof(prep), &server->mutex);
-    if (rtn < 0) {
-        logerr("Error sending REDIRECT msg");
+    struct tcp_state state;
+    init_tcp_state(&state);
+    if (get_tcp_state(fd, &state, 1)) {
+        logerr("Error getting TCP state");
         return -1;
+    }
+    close(fd);
+
+    if (pthread_mutex_lock(&server->mutex)) {
+        perror("pthread_mutex_lock");
+    }
+
+    send_tcp_state(peer->peer_fd, &prep, sizeof(prep), &state);
+
+    if (pthread_mutex_unlock(&server->mutex)) {
+        perror("pthread mutex unlock");
     }
 
     return 0;
@@ -495,34 +522,6 @@ int handle_redirected(int proxy_fd, struct tsock_server *server) {
     return 0;
 }
 
-static int handle_prep(struct tsock_peer *peer, struct tsock_server *server) {
-    loginfo("Received PREP");
-    struct prep_msg msg;
-    ssize_t recvd = recv(peer->peer_fd, &msg, sizeof(msg), 0);
-    if (recvd != sizeof(msg)) {
-        logerr("Received weird prep msg: %zd", recvd);
-        return -1;
-    }
-
-    
-    if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
-        logerr("Error sending STOP REDIRECT");
-        return -1;
-    }
-
-    if (block_delivery(&msg.client_addr, &server->app_addr, -1)) {
-        logerr("Error blocking delivery for prep");
-        return -1;
-    }
-
-    int rtn = send_tsock_msg(peer->peer_fd, PREPPED, &msg, sizeof(msg), &server->mutex);
-    if (rtn < 0) {
-        logerr("Error sending PREPPED msg");
-        return -1;
-    }
-    return 0;
-}
-
 static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) {
     loginfo("Received PREPPED");
     struct prep_msg msg;
@@ -540,31 +539,6 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
         return -1;
     }
 
-    struct tcp_state state;
-    init_tcp_state(&state);
-    if (get_tcp_state(msg.orig_fd, &state, 1)) {
-        logerr("Error getting TCP state");
-        return -1;
-    }
-    close(msg.orig_fd);
-
-    if (pthread_mutex_lock(&server->mutex)) {
-        perror("pthread mutex lock");
-    }
-    enum msg_type t = XFER;
-    int rtn = send_tcp_state(peer->peer_fd, &t, sizeof(t), &state);
-
-    /*
-    int rtn = send_tsock_msg(peer->peer_fd, XFER, NULL, 0, NULL);
-    if (rtn < 0) {
-        logerr("Error sending XFER msg");
-        return -1;
-    }
-    if (send_tcp_state(peer->peer_fd, &state)) {
-        logerr("Error sending tcp state");
-        return -1;
-    }*/
-
     if (pthread_mutex_unlock(&server->mutex)) {
         perror("pthread_mutex unlock");
     }
@@ -577,7 +551,7 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
         .client_addr = msg.client_addr
     };
 
-    rtn = send_tsock_msg(server->proxy_fd, REDIRECT, &re_msg, sizeof(re_msg), &proxy_mutex);
+    int rtn = send_tsock_msg(server->proxy_fd, REDIRECT, &re_msg, sizeof(re_msg), &proxy_mutex);
     if (rtn != 0) {
         logerr("Error sending REDIRECT");
         return -1;
@@ -639,12 +613,6 @@ int tsock_accept(struct tsock_server *server, int timeout_ms) {
             case PEER_JOIN:
                 if (handle_peer_join(server, peer_fd)) {
                     logerr("Error handling peer join");
-                    return -1;
-                }
-                break;
-            case PREP:
-                if (handle_prep(peer, server)) {
-                    logerr("Error handling PREP");
                     return -1;
                 }
                 break;

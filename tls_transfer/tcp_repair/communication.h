@@ -45,11 +45,6 @@ struct redirected_msg {
     int new_fd;
 };
 
-struct xfer_msg {
-    int xfer_id;
-};
-
-
 int create_listening_fd(struct sockaddr_in *addr);
 int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_size, pthread_mutex_t *mutex);
 #endif

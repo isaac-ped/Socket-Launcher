@@ -1,5 +1,6 @@
 #include "tcp_repair.h"
 #include "logging.h"
+#include "communication.h"
 
 #include <sys/uio.h> // readv
 #include <stdio.h>
@@ -275,8 +276,10 @@ static int __attribute__((__unused__)) send_tcp_qstate(int fd, struct tcp_qstate
 
 int send_tcp_state(int fd, void *prefix, size_t prefix_size, struct tcp_state *state) {
     ssize_t sent;
+    enum msg_type type = XFER;
 
     struct iovec iov[] = {
+        {&type, sizeof(type)},
         {prefix, prefix_size},
         {&state->caddr, sizeof(state->caddr)},
         {&state->rcv.hdr, sizeof(state->rcv.hdr)},
@@ -285,13 +288,13 @@ int send_tcp_state(int fd, void *prefix, size_t prefix_size, struct tcp_state *s
         {state->snd.msg_iov[0].iov_base, state->snd.msg_iov[0].iov_len}
     };
 
-    size_t tot_size = prefix_size + sizeof(state->caddr) + \
+    size_t tot_size = prefix_size + sizeof(type) + sizeof(state->caddr) + \
                       sizeof(state->rcv.hdr) + state->rcv.msg_iov[0].iov_len + \
                       sizeof(state->snd.hdr) + state->snd.msg_iov[0].iov_len;
 
     struct msghdr hdr = {
         .msg_iov = iov,
-        .msg_iovlen = 6
+        .msg_iovlen = 7
     };
 
     if ((sent = sendmsg(fd, &hdr, 0)) != tot_size) {
