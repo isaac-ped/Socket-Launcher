@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    struct thread_pool *tp = init_thread_pool(10, read_loop, NULL, -1);
+    struct thread_pool *tp = init_thread_pool(1, read_loop, NULL, -1);
 
     while (1) {
 

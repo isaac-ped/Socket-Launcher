@@ -72,11 +72,11 @@ int tp_enqueue(struct thread_pool *tp, void *item) {
             perror("pthread_mutex_unlock");
             return -1;
         }
-        if (tp->length > 1) {
-            printf("TP LENGTH %d\n", tp->length);
-        }
         return 1;
     }
+            if (tp->length > 1) {
+                printf("TP LENGTH %d\n", tp->length);
+            }
 
     if (tp->tail) {
         tp->tail->next = next;
