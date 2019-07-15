@@ -410,10 +410,15 @@ static int handle_xfer(struct tsock_peer *peer,
 
     if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
         logerr("Error sending STOP REDIRECT");
-        return -1;
+       return -1;
     }
 
     int newfd = socket(AF_INET, SOCK_STREAM, 0);
+    int opt = 1;
+    if (setsockopt(newfd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+        perror("TCP_NODELAY");
+        return -1;
+    }
 
     struct tcp_state state;
     init_tcp_state(&state);
@@ -436,7 +441,7 @@ static int handle_xfer(struct tsock_peer *peer,
         logerr("ERROR DUPLICATING PACKETS");
     }
 
-    int opt = 0;
+    opt = 0;
     if (setsockopt(newfd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
         perror("Unsetting TCP_REPAIR");
         return -1;

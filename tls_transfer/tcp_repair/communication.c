@@ -40,6 +40,16 @@ int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_siz
             perror("mutex unlock");
         }
     }
+    int opt = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+        perror("TCP_NODELAY");
+        return -1;
+    }
+    opt = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &opt, sizeof(opt))) {
+        perror("QUICKACK");
+        return -1;
+    }
     return 0;
 }
 
@@ -56,12 +66,13 @@ int create_listening_fd(struct sockaddr_in *addr, bool quickack) {
         perror("REUSEADDR");
         return -1;
     }
+    opt = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+        perror("TCP_NODELAY");
+        return -1;
+    }
     if (quickack) {
-        opt = 1;
-        if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
-            perror("TCP_NODELAY");
-            return -1;
-        }
+
         opt = 1;
         if (setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &opt, sizeof(opt))) {
             perror("QUICKACK");
