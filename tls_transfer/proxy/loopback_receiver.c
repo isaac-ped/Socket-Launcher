@@ -79,7 +79,7 @@ static inline __u16 incr_add_check_l(__u16 old_check, __u32 new) {
 
 #define SIZE_DIFF (sizeof(struct proxiedhdr) - sizeof(struct hdr))
 
-BPF_HASH(blocked_flows, struct flow, int);
+BPF_TABLE("lru_hash", struct flow, int, blocked_flows, 32768);
 BPF_HASH(redirect_flows, struct flow, int);
 
 BPF_ARRAY(dst_servers, struct dst_server);

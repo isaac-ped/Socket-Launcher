@@ -490,6 +490,7 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
     }*/
 
     send_tcp_state(peer->peer_fd, &prep, sizeof(prep), &state);
+    loginfo("Sent transfer message");
 
     /*if (pthread_mutex_unlock(&server->mutex)) {
         perror("pthread mutex unlock");
@@ -516,11 +517,12 @@ int handle_redirected(int proxy_fd, struct tsock_server *server) {
     }
     */
     //close(msg.old_fd);
-
+/*
     if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
         logerr("Error sending STOP REDIRECT");
         return -1;
     }
+    */
     return 0;
 }
 
