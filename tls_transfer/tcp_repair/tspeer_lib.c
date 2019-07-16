@@ -465,11 +465,6 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
         logerr("Peer %d DNE", peer_id);
         return -1;
     }
-
-    if (block_delivery(&prep.client_addr, &server->app_addr, peer_id)) {
-        logerr("Error blocking delivery");
-    }
-
     struct prep_msg prep = {
         .orig_fd = fd,
     };
@@ -477,6 +472,9 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
     if (getpeername(fd, (struct sockaddr*)&prep.client_addr, &socklen)) {
         perror("Getting peer name");
         return -1;
+    }
+    if (block_delivery(&prep.client_addr, &server->app_addr, peer_id)) {
+        logerr("Error blocking delivery");
     }
 
     struct tcp_state state;
