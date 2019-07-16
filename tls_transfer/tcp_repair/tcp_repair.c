@@ -88,14 +88,6 @@ int get_tcp_state(int fd, struct tcp_state *state, int init) {
             return -1;
         }
     }
-    if (get_tcp_qstate(fd, &state->snd, TCP_SEND_QUEUE)) {
-        logerr("Getting TCP_SEND_QUEUE state");
-        return -1;
-    }
-    if (get_tcp_qstate(fd, &state->rcv, TCP_RECV_QUEUE)) {
-        logerr("Getting TCP_RECV_QUEUE state");
-        return -1;
-    }
 
 
     socklen_t socklen = sizeof(state->caddr.dst_addr);
@@ -109,10 +101,13 @@ int get_tcp_state(int fd, struct tcp_state *state, int init) {
         return -1;
     }
     state->caddr.src_port = src_addr.sin_port;
-    if (init != 1) {
-        if (close(fd)) {
-            perror("close");
-        }
+    if (get_tcp_qstate(fd, &state->rcv, TCP_RECV_QUEUE)) {
+        logerr("Getting TCP_RECV_QUEUE state");
+        return -1;
+    }
+    if (get_tcp_qstate(fd, &state->snd, TCP_SEND_QUEUE)) {
+        logerr("Getting TCP_SEND_QUEUE state");
+        return -1;
     }
     return 0;
 }
