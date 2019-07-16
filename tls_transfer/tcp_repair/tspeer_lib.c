@@ -415,10 +415,10 @@ static int handle_xfer(struct tsock_peer *peer,
 
     int newfd = socket(AF_INET, SOCK_STREAM, 0);
     int opt = 1;
-    if (setsockopt(newfd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
-        perror("TCP_NODELAY");
-        return -1;
-    }
+    //if (setsockopt(newfd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+    //    perror("TCP_NODELAY");
+    //    return -1;
+    //}
 
     struct tcp_state state;
     init_tcp_state(&state);
@@ -466,6 +466,10 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
         return -1;
     }
 
+    if (block_delivery(&prep.client_addr, &server->app_addr, peer_id)) {
+        logerr("Error blocking delivery");
+    }
+
     struct prep_msg prep = {
         .orig_fd = fd,
     };
@@ -473,10 +477,6 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
     if (getpeername(fd, (struct sockaddr*)&prep.client_addr, &socklen)) {
         perror("Getting peer name");
         return -1;
-    }
-
-    if (block_delivery(&prep.client_addr, &server->app_addr, peer_id)) {
-        logerr("Error blocking delivery");
     }
 
     struct tcp_state state;

@@ -67,12 +67,12 @@ int create_listening_fd(struct sockaddr_in *addr, bool quickack) {
         return -1;
     }
     opt = 1;
-    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
-        perror("TCP_NODELAY");
-        return -1;
-    }
     if (quickack) {
 
+        if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+            perror("TCP_NODELAY");
+            return -1;
+        }
         opt = 1;
         if (setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &opt, sizeof(opt))) {
             perror("QUICKACK");

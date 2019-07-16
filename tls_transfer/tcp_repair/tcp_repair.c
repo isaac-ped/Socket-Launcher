@@ -88,15 +88,15 @@ int get_tcp_state(int fd, struct tcp_state *state, int init) {
             return -1;
         }
     }
+    if (get_tcp_qstate(fd, &state->snd, TCP_SEND_QUEUE)) {
+        logerr("Getting TCP_SEND_QUEUE state");
+        return -1;
+    }
     if (get_tcp_qstate(fd, &state->rcv, TCP_RECV_QUEUE)) {
         logerr("Getting TCP_RECV_QUEUE state");
         return -1;
     }
 
-    if (get_tcp_qstate(fd, &state->snd, TCP_SEND_QUEUE)) {
-        logerr("Getting TCP_SEND_QUEUE state");
-        return -1;
-    }
 
     socklen_t socklen = sizeof(state->caddr.dst_addr);
     if (getpeername(fd, (struct sockaddr*)&state->caddr.dst_addr, &socklen)) {
