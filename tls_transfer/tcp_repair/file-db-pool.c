@@ -59,6 +59,9 @@ int tp_terminate(struct thread_pool *tp) {
 }
 
 float tp_fullness(struct thread_pool *tp) {
+    if (tp->max_length < 0) {
+        return 0;
+    }
     float raw =  (float)tp->length / (float)tp->max_length;
     float prob = expl(raw * 20) / ( (expl(raw * 20) + expl(20)));
     return prob - .001;

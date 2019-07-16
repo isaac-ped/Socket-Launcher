@@ -534,7 +534,7 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
     return 0;
 }
 
-#define MAX_EPOLL_EVENTS 16
+#define MAX_EPOLL_EVENTS 1
 
 int tsock_accept(struct tsock_server *server, int timeout_ms) {
     if (!server->running) {
