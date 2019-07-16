@@ -456,8 +456,6 @@ static int handle_xfer(struct tsock_peer *peer,
     return newfd;
 }
 
-static pthread_mutex_t proxy_mutex = PTHREAD_MUTEX_INITIALIZER;
-
 int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
     loginfo("Transferring socket");
     struct tsock_peer *peer = &server->peers[peer_id];
@@ -496,33 +494,6 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
         perror("pthread mutex unlock");
     }*/
 
-    return 0;
-}
-
-int handle_redirected(int proxy_fd, struct tsock_server *server) {
-    loginfo("Received REDIRECTED\n");
-    struct redirect_msg msg;
-    ssize_t recvd = recv(proxy_fd, &msg, sizeof(msg), 0);
-    if (recvd != sizeof(msg)) {
-        logerr("Received weird size redirect msg: %zd", recvd);
-        return -1;
-    }
-
-    /*
-    struct sockaddr_in client_addr;
-    socklen_t socklen = sizeof(client_addr);
-    if (getpeername(msg.old_fd, (struct sockaddr*)&client_addr, &socklen)) {
-        perror("Getting peername for DO_XFER");
-        return -1;
-    }
-    */
-    //close(msg.old_fd);
-/*
-    if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
-        logerr("Error sending STOP REDIRECT");
-        return -1;
-    }
-    */
     return 0;
 }
 
@@ -620,12 +591,6 @@ int tsock_accept(struct tsock_server *server, int timeout_ms) {
             case PREPPED:
                 if (handle_prepped(peer, server)) {
                     logerr("Error hanlding PREPPED");
-                    return -1;
-                }
-                break;
-            case REDIRECTED:
-                if (handle_redirected(peer_fd, server)) {
-                    logerr("Error handling DO_XFER");
                     return -1;
                 }
                 break;
