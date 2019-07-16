@@ -64,7 +64,7 @@ float tp_fullness(struct thread_pool *tp) {
     }
     float raw =  (float)tp->length / (float)tp->max_length;
     float prob = expl(raw * 20) / ( (expl(raw * 20) + expl(20)));
-    return prob - .001;
+    return prob - .01;
 }
 
 float tp_enqueue(struct thread_pool *tp, void *item) {

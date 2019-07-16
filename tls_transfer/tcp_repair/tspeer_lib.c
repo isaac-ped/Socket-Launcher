@@ -574,10 +574,10 @@ int tsock_accept(struct tsock_server *server, int timeout_ms) {
         ssize_t recvd = recv(peer_fd, &hdr, sizeof(hdr), 0);
         if (recvd < 0) {
             perror("recv hdr from peer");
-            return -1;
+            return -2;
         }
         if (recvd != sizeof(hdr)) {
-            logerr("Receved weird size message: %d", (int)recvd);
+            logerr("Receved weird size message from peer %d: %d", events[i].data.u32, (int)recvd);
             return -1;
         }
         loginfo("Received message of type %d", hdr.type);

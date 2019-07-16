@@ -164,8 +164,7 @@ int main(int argc, char **argv) {
                 int newfd = tsock_accept(server, 0);
                 if (newfd == -1) {
                     logerr("Accept returned -1");
-                    rtn = -1;
-                    break;
+                    continue;
                 }
                 if (newfd == 0) {
                     continue;

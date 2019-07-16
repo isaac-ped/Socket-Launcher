@@ -172,10 +172,12 @@ int main(int argc, char **argv) {
         for (int n=0; n < nfds; ++n) {
             if (events[n].data.fd == server->epollfd) {
                 int newfd = tsock_accept(server, 0);
-                if (newfd == -1) {
+                if (newfd == -2) {
                     logerr("Accept returned -1");
                     rtn = -1;
                     break;
+                } else if (newfd == -1) {
+                    continue;
                 }
                 if (newfd == 0) {
                     continue;
@@ -183,7 +185,7 @@ int main(int argc, char **argv) {
                 struct read_arg *arg = malloc(sizeof(*arg));
                 arg->fd = newfd;
                 arg->n = 0;
-                ev.events = EPOLLIN | EPOLLONESHOT;
+                ev.events = EPOLLIN | EPOLLONESHOT | EPOLLRDHUP;
                 ev.data.ptr = arg;
                 if (epoll_ctl(epollfd, EPOLL_CTL_ADD, newfd, &ev) == -1) {
                     logerr("Error adding %d\n", newfd);
@@ -192,12 +194,11 @@ int main(int argc, char **argv) {
                 }
             } else {
                 float fullness = tp_fullness(tp);
-                if (events[n].events & EPOLLIN && \
-                        (!(events[n].events & EPOLLERR)) && \
-                        (!(events[n].events & EPOLLHUP)))  {
+                struct read_arg *arg = events[n].data.ptr;
+                if ((events[n].events & EPOLLIN) && \
+                        (!(events[n].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)))) {
                     int fullchance = fullness * RAND_MAX;
                     if (rand() < fullchance) {
-                        struct read_arg *arg = events[n].data.ptr;
                         int fd = arg->fd;
                         int newid = (local_id + 1) % 2;
                         if (epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL)) {
@@ -209,7 +210,6 @@ int main(int argc, char **argv) {
                         tp_enqueue(tp, events[n].data.ptr);
                     }
                 } else {
-                    struct read_arg *arg = events[n].data.ptr;
                     int fd = arg->fd;
                     epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL);
                     close(fd);

@@ -179,7 +179,7 @@ int activate_socket(int fd) {
 
 int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr) {
     int opt = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt))) {
         perror("Setting REUSEADDR");
         return -1;
     }
