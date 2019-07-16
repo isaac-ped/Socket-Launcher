@@ -88,6 +88,10 @@ int get_tcp_state(int fd, struct tcp_state *state, int init) {
             return -1;
         }
     }
+    int opt = 1;
+    if (setsockopt(fd, SOL_TCP, TCP_CORK, &opt, sizeof(opt))) {
+        perror("SETTING TCP_CORK");
+    }
 
 
     socklen_t socklen = sizeof(state->caddr.dst_addr);
