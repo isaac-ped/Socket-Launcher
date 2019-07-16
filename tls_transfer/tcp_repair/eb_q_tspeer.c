@@ -192,7 +192,9 @@ int main(int argc, char **argv) {
                 }
             } else {
                 float fullness = tp_fullness(tp);
-                if (events[n].events & EPOLLIN) {
+                if (events[n].events & EPOLLIN && \
+                        (!(events[n].events & EPOLLERR)) && \
+                        (!(events[n].events & EPOLLHUP)))  {
                     int fullchance = fullness * RAND_MAX;
                     if (rand() < fullchance) {
                         struct read_arg *arg = events[n].data.ptr;

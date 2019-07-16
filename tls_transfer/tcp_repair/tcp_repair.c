@@ -211,13 +211,11 @@ int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr) {
         logerr("Error setting TCP_SEND_QUEUE iov");
         return -1;
     }
-    for (int i=0; i < 1000; i++) {
-        if (connect(fd, (struct sockaddr*)&state->caddr.dst_addr, sizeof(state->caddr.dst_addr))) {
-            perror("Error connecting repaired socket");
-            logerr("Couldn't connect to %d:%u", state->caddr.dst_addr.sin_addr.s_addr, ntohs(state->caddr.dst_addr.sin_port));
-            continue;
-        }
-        break;
+
+    if (connect(fd, (struct sockaddr*)&state->caddr.dst_addr, sizeof(state->caddr.dst_addr))) {
+        perror("Error connecting repaired socket");
+        logerr("Couldn't connect to %d:%u", state->caddr.dst_addr.sin_addr.s_addr, ntohs(state->caddr.dst_addr.sin_port));
+        return -1;
     }
 
     if (set_tcp_qstate_iov(fd, &state->rcv, TCP_RECV_QUEUE)) {
