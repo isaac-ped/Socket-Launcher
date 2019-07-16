@@ -447,7 +447,7 @@ static int handle_xfer(struct tsock_peer *peer,
         return -1;
     }
 
-    int rtn = send_tsock_msg(peer->peer_fd, PREPPED, &msg, sizeof(msg), &server->mutex);
+    int rtn = send_tsock_msg(peer->peer_fd, PREPPED, &msg, sizeof(msg), NULL);
     if (rtn < 0) {
         logerr("Error sending PREPPED msg");
         return -1;
@@ -485,15 +485,15 @@ int tsock_transfer(struct tsock_server *server, int peer_id, int fd) {
     }
     close(fd);
 
-    if (pthread_mutex_lock(&server->mutex)) {
+    /*if (pthread_mutex_lock(&server->mutex)) {
         perror("pthread_mutex_lock");
-    }
+    }*/
 
     send_tcp_state(peer->peer_fd, &prep, sizeof(prep), &state);
 
-    if (pthread_mutex_unlock(&server->mutex)) {
+    /*if (pthread_mutex_unlock(&server->mutex)) {
         perror("pthread mutex unlock");
-    }
+    }*/
 
     return 0;
 }
@@ -553,7 +553,7 @@ static int handle_prepped(struct tsock_peer *peer, struct tsock_server *server) 
         .client_addr = msg.client_addr
     };
 
-    int rtn = send_tsock_msg(server->proxy_fd, REDIRECT, &re_msg, sizeof(re_msg), &proxy_mutex);
+    int rtn = send_tsock_msg(server->proxy_fd, REDIRECT, &re_msg, sizeof(re_msg), NULL);
     if (rtn != 0) {
         logerr("Error sending REDIRECT");
         return -1;
