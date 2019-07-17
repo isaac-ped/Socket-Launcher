@@ -517,12 +517,12 @@ int handle_redirected(int proxy_fd, struct tsock_server *server) {
     }
     */
     //close(msg.old_fd);
-/*
+
     if (send_stop_redirect(&msg.client_addr, &server->app_addr)) {
         logerr("Error sending STOP REDIRECT");
         return -1;
     }
-    */
+    
     return 0;
 }
 
