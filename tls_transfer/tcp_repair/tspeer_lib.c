@@ -441,7 +441,7 @@ static int handle_xfer(struct tsock_peer *peer,
         logerr("ERROR DUPLICATING PACKETS");
     }
 
-    opt = 0;
+    opt = -1; // -1 disables WINDOW_PROBE
     if (setsockopt(newfd, SOL_TCP, TCP_REPAIR, &opt, sizeof(opt))) {
         perror("Unsetting TCP_REPAIR");
         return -1;

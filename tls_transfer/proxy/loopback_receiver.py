@@ -182,10 +182,10 @@ class LBRecv(object):
               fd = ing_iface_tc_fn.fd, name = ing_iface_tc_fn.name,
               parent = 'ffff:fff2', class_id = 1,
               direct_action=True)
-        ip.tc('add-filter', 'bpf', ifindex,
-              fd = egr_iface_fn.fd, name = egr_iface_fn.name,
-              parent = 'ffff:fff3', class_id = 1,
-              direct_action=True)
+        #ip.tc('add-filter', 'bpf', ifindex,
+        #      fd = egr_iface_fn.fd, name = egr_iface_fn.name,
+        #      parent = 'ffff:fff3', class_id = 1,
+        #      direct_action=True)
         try:
             while True:
                 log("Waiting on receive")
