@@ -76,6 +76,16 @@ static int handle_redirect(struct peer_info *peers, struct redirect_msg *msg, ch
 
     loginfo("Proxy responded to redirect: %s", redirect_msg);
 
+    if (msg->orig_peer > MAX_PEERS) {
+        logerr("Peer number too high!\n");
+        return -1;
+    }
+
+    if (send_tsock_msg(peers[msg->orig_peer].fd, REDIRECTED, msg, sizeof(*msg), NULL)) {
+        logerr("Error sending REDIRECTED");
+        return -1;
+    }
+
     return 0;
 }
 
