@@ -147,8 +147,8 @@ class Proxy(object):
         finally:
             print('inflows', len(self.b['inflows']))
             print('outflows', len(self.b['outflows']))
-            for i, (flow, x) in enumerate(self.b['inflows'].items()):
-                print(socket.ntohs(flow.srcport), socket.ntohs(flow.dstport), int2ip(flow.srcaddr), x)
+            #for i, (flow, x) in enumerate(self.b['inflows'].items()):
+            #    print(socket.ntohs(flow.srcport), socket.ntohs(flow.dstport), int2ip(flow.srcaddr), x)
             self.b.remove_xdp(iface)
             try:
                 ip.tc('del', 'clsact', ifindex)

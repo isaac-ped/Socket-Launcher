@@ -46,8 +46,8 @@ struct __attribute__((__packed__)) flow {
 BPF_ARRAY(dst_servers, struct dst_addr);
 BPF_ARRAY(n_dst_servers, unsigned int);
 BPF_HASH(active_ports, __be16, int);
-BPF_HASH(inflows, struct flow, int);
-BPF_HASH(outflows, struct outflow, struct dst_addr);
+BPF_TABLE("lru_hash", struct flow, int, inflows, 65536);
+BPF_TABLE("lru_hash", struct outflow, struct dst_addr, outflows, 65536);
 BPF_PERCPU_ARRAY(last_flow, int, 1);
 
 
@@ -123,7 +123,7 @@ static int handle_outflow(struct inhdr *hdr) {
         return PASS;
     }
     struct dst_addr client = *client_p;
-    if (hdr->tcp.rst || hdr->tcp.fin) {
+    if (hdr->tcp.fin) {
         //bpf_trace_printk("PROXY: Deleting outflow\n");
         outflows.delete(&curr_flow);
 
@@ -137,7 +137,7 @@ static int handle_outflow(struct inhdr *hdr) {
         if (idx && *idx > 0) {
             flowi = -*idx;
         }
-        inflows.update(&curr_inflow, &flowi);
+        //inflows.update(&curr_inflow, &flowi);
     }
 
     //bpf_trace_printk("PROXY: Matched outflow %d:%d->%d\n",
@@ -201,11 +201,10 @@ static int handle_inflow(struct inhdr *hdr) {
 
         if (hdr->tcp.rst || hdr->tcp.fin) {
             active_flow = flow;
-            inflows.delete(&curr_flow);
             //bpf_trace_printk("PROXY: Deleting new inflow\n");
         } else {
-            active_flow_p = inflows.lookup_or_init(&curr_flow, &flow);
-            active_flow = *active_flow_p;
+            inflows.insert(&curr_flow, &flow);
+            active_flow = flow;
         }
     } else {
         active_flow = *active_flow_p;
@@ -214,7 +213,7 @@ static int handle_inflow(struct inhdr *hdr) {
         //bpf_trace_printk("PROXY: inBAD 5\n");
         return PASS;
     }
-    if (hdr->tcp.rst || hdr->tcp.fin || active_flow < 0) {
+    if (hdr->tcp.fin || active_flow < 0) {
         //bpf_trace_printk("PROXY: Deleting old inflow to %d\n", active_flow);
         inflows.delete(&curr_flow);
     }
