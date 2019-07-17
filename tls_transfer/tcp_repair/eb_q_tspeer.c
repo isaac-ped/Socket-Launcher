@@ -185,7 +185,7 @@ int main(int argc, char **argv) {
                 struct read_arg *arg = malloc(sizeof(*arg));
                 arg->fd = newfd;
                 arg->n = 0;
-                ev.events = EPOLLIN | EPOLLONESHOT | EPOLLRDHUP;
+                ev.events = EPOLLIN | EPOLLONESHOT;
                 ev.data.ptr = arg;
                 if (epoll_ctl(epollfd, EPOLL_CTL_ADD, newfd, &ev) == -1) {
                     logerr("Error adding %d\n", newfd);
@@ -196,7 +196,7 @@ int main(int argc, char **argv) {
                 float fullness = tp_fullness(tp);
                 struct read_arg *arg = events[n].data.ptr;
                 if ((events[n].events & EPOLLIN) && \
-                        (!(events[n].events & (EPOLLERR | EPOLLHUP | EPOLLRDHUP)))) {
+                        (!(events[n].events & (EPOLLERR | EPOLLHUP)))) {
                     int fullchance = fullness * RAND_MAX;
                     if (rand() < fullchance) {
                         int fd = arg->fd;
