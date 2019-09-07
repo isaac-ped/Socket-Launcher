@@ -38,7 +38,7 @@ industry standard proxy when used on few simultaneous connections.
 As the connection pool grows in size, the Socket Launcher proxy
 outperforms user-space proxies by 2x.
 
-![proxy performance](figures/ProxyPerformnance.png)
+![proxy performance](figures/ProxyPerformance.png)
 
 ### Transfer
 The efficacy of socket transfer was tested in the following scenario:
