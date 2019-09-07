@@ -96,7 +96,7 @@ def simpleTest():
     net.start()
     #topo.setIp(net)
 
-    net.get('h2').cmd('bash proxy/set_nat.sh')
+    #net.get('h2').cmd('bash proxy/set_nat.sh')
 
     topo.disable_offload(net)
     topo.set_macs(net)
