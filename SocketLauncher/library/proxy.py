@@ -1,5 +1,4 @@
 #!/usr/bin/env python
-import yaml
 import subprocess
 import logging
 import sys
