@@ -37,7 +37,7 @@ class Flow(ct.Structure):
 
 class LBRecv(object):
 
-    def __init__(self, id, src_file = os.path.join(os.path.dirname(__file__), 'loopback_receiver.c')):
+    def __init__(self, id, src_file = os.path.join(os.path.dirname(__file__), 'sl_receiver.c')):
         try:
             os.mkdir('/tmp/tspeer');
         except OSError:
