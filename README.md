@@ -12,7 +12,7 @@ Socket Launcher consists of two main components:
  * Accepted and transferred sockets behave identically
  * Arbitrary number of possible endpoints
 
- ![topology](figures/Topology.png)
+ ![topology](figures/Topology.png | width=200)
 
 ## Protocol
 
