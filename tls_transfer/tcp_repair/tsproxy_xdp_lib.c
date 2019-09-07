@@ -143,7 +143,7 @@ int proxy_ctl_loop(struct sockaddr_in *ctl_addr) {
     zmq_connect(requester, SOCK_LOC);
     loginfo("Conntected socket to %s\n", SOCK_LOC);
 
-    int ctl_fd = create_listening_fd(ctl_addr);
+    int ctl_fd = create_listening_fd(ctl_addr, true);
     if (ctl_fd < 0) {
         logerr("Error creating control FD");
         return -1;

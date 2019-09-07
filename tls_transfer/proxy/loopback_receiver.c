@@ -79,7 +79,7 @@ static inline __u16 incr_add_check_l(__u16 old_check, __u32 new) {
 
 #define SIZE_DIFF (sizeof(struct proxiedhdr) - sizeof(struct hdr))
 
-BPF_HASH(blocked_flows, struct flow, int);
+BPF_TABLE("lru_hash", struct flow, int, blocked_flows, 32768);
 BPF_HASH(redirect_flows, struct flow, int);
 
 BPF_ARRAY(dst_servers, struct dst_server);
@@ -118,7 +118,9 @@ static int add_proxied_hdr(CTX_TYPE *ctx) {
         if (*blocked_flow == -1) {
             return 0;
         }
+#ifdef DEBUG
         bpf_trace_printk("REDIRECTION: Got blocked flow %u", ntohs(hdr->ip.id));
+#endif
         is_blocked = 1;
         active_flow = *blocked_flow;
     } else {
@@ -483,7 +485,7 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
 #ifdef DEBUG
             bpf_trace_printk("LO GOT BLOCKED TCP PKT %u\n", ntohs(normhdr->ip.id));
 #endif
-            return bpf_redirect(1, BPF_F_INGRESS);
+            return bpf_redirect(1, 0);
         }
         int zero = 0;
         int *IFINDEX = ifindex.lookup(&zero);
@@ -536,7 +538,7 @@ int monitor_lo_ingress(struct __sk_buff *ctx) {
 #ifdef DEBUG
         bpf_trace_printk("LO RETURN TO LO\n");
 #endif
-        return bpf_redirect(1, BPF_F_INGRESS);
+        return bpf_redirect(1, 0);
     }
     hdr->udp.dest = 1;
 #ifdef DEBUG

@@ -11,11 +11,10 @@
 #include <pthread.h>
 #include <netinet/tcp.h>
 
-#define SHOW_USAGE(err) logerr(err "\nUsage: %s APP_PORT PROXY_IP:PORT CTL_IP:PORT ID XFER_COUNT", argv[0]);
+#define SHOW_USAGE(err) logerr(err "\nUsage: %s APP_PORT PROXY_IP:PORT CTL_IP:PORT ID QMAX NTHREAD", argv[0]);
 
 static struct tsock_server *tss;
 static int local_id;
-static int xfer_count = 0;
 static int epollfd;
 
 struct read_arg {
@@ -84,14 +83,15 @@ void read_loop(void *varg, void *unused) {
     }
 }
 
-#define MAX_EVENTS 64
+#define MAX_EVENTS 256
 
 int main(int argc, char **argv) {
-    if (argc != 6) {
+    if (argc != 7) {
         SHOW_USAGE("Not enough args");
         return -1;
     }
-    xfer_count = atoi(argv[5]);
+    int qmax = atoi(argv[5]);
+    int nthread = atoi(argv[6]);
     local_id = atoi(argv[4]);
     int app_port = atoi(argv[1]);
 
@@ -158,7 +158,7 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    struct thread_pool *tp = init_thread_pool(1, read_loop, NULL, 250);
+    struct thread_pool *tp = init_thread_pool(nthread, read_loop, NULL, qmax);
 
     while (1) {
 
@@ -171,11 +171,13 @@ int main(int argc, char **argv) {
         int rtn = 0;
         for (int n=0; n < nfds; ++n) {
             if (events[n].data.fd == server->epollfd) {
-                int newfd = tsock_accept(server, 500);
-                if (newfd == -1) {
+                int newfd = tsock_accept(server, 0);
+                if (newfd == -2) {
                     logerr("Accept returned -1");
                     rtn = -1;
                     break;
+                } else if (newfd == -1) {
+                    continue;
                 }
                 if (newfd == 0) {
                     continue;
@@ -192,10 +194,11 @@ int main(int argc, char **argv) {
                 }
             } else {
                 float fullness = tp_fullness(tp);
-                if (events[n].events & EPOLLIN) {
+                struct read_arg *arg = events[n].data.ptr;
+                if ((events[n].events & EPOLLIN) && \
+                        (!(events[n].events & (EPOLLERR | EPOLLHUP)))) {
                     int fullchance = fullness * RAND_MAX;
                     if (rand() < fullchance) {
-                        struct read_arg *arg = events[n].data.ptr;
                         int fd = arg->fd;
                         int newid = (local_id + 1) % 2;
                         if (epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL)) {
@@ -207,7 +210,6 @@ int main(int argc, char **argv) {
                         tp_enqueue(tp, events[n].data.ptr);
                     }
                 } else {
-                    struct read_arg *arg = events[n].data.ptr;
                     int fd = arg->fd;
                     epoll_ctl(epollfd, EPOLL_CTL_DEL, fd, NULL);
                     close(fd);

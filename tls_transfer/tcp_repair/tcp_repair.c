@@ -1,5 +1,6 @@
 #include "tcp_repair.h"
 #include "logging.h"
+#include "communication.h"
 
 #include <sys/uio.h> // readv
 #include <stdio.h>
@@ -87,15 +88,11 @@ int get_tcp_state(int fd, struct tcp_state *state, int init) {
             return -1;
         }
     }
-    if (get_tcp_qstate(fd, &state->rcv, TCP_RECV_QUEUE)) {
-        logerr("Getting TCP_RECV_QUEUE state");
-        return -1;
+    int opt = 1;
+    if (setsockopt(fd, SOL_TCP, TCP_CORK, &opt, sizeof(opt))) {
+        perror("SETTING TCP_CORK");
     }
 
-    if (get_tcp_qstate(fd, &state->snd, TCP_SEND_QUEUE)) {
-        logerr("Getting TCP_SEND_QUEUE state");
-        return -1;
-    }
 
     socklen_t socklen = sizeof(state->caddr.dst_addr);
     if (getpeername(fd, (struct sockaddr*)&state->caddr.dst_addr, &socklen)) {
@@ -108,10 +105,13 @@ int get_tcp_state(int fd, struct tcp_state *state, int init) {
         return -1;
     }
     state->caddr.src_port = src_addr.sin_port;
-    if (init != 1) {
-        if (close(fd)) {
-            perror("close");
-        }
+    if (get_tcp_qstate(fd, &state->rcv, TCP_RECV_QUEUE)) {
+        logerr("Getting TCP_RECV_QUEUE state");
+        return -1;
+    }
+    if (get_tcp_qstate(fd, &state->snd, TCP_SEND_QUEUE)) {
+        logerr("Getting TCP_SEND_QUEUE state");
+        return -1;
     }
     return 0;
 }
@@ -179,7 +179,7 @@ int activate_socket(int fd) {
 
 int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr) {
     int opt = 1;
-    if (setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt))) {
+    if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt))) {
         perror("Setting REUSEADDR");
         return -1;
     }
@@ -211,13 +211,11 @@ int set_tcp_state(int fd, struct tcp_state *state, struct in_addr *local_addr) {
         logerr("Error setting TCP_SEND_QUEUE iov");
         return -1;
     }
-    for (int i=0; i < 1000; i++) {
-        if (connect(fd, (struct sockaddr*)&state->caddr.dst_addr, sizeof(state->caddr.dst_addr))) {
-            perror("Error connecting repaired socket");
-            logerr("Couldn't connect to %d:%u", state->caddr.dst_addr.sin_addr.s_addr, ntohs(state->caddr.dst_addr.sin_port));
-            continue;
-        }
-        break;
+
+    if (connect(fd, (struct sockaddr*)&state->caddr.dst_addr, sizeof(state->caddr.dst_addr))) {
+        perror("Error connecting repaired socket");
+        logerr("Couldn't connect to %d:%u", state->caddr.dst_addr.sin_addr.s_addr, ntohs(state->caddr.dst_addr.sin_port));
+        return -1;
     }
 
     if (set_tcp_qstate_iov(fd, &state->rcv, TCP_RECV_QUEUE)) {
@@ -275,8 +273,10 @@ static int __attribute__((__unused__)) send_tcp_qstate(int fd, struct tcp_qstate
 
 int send_tcp_state(int fd, void *prefix, size_t prefix_size, struct tcp_state *state) {
     ssize_t sent;
+    enum msg_type type = XFER;
 
     struct iovec iov[] = {
+        {&type, sizeof(type)},
         {prefix, prefix_size},
         {&state->caddr, sizeof(state->caddr)},
         {&state->rcv.hdr, sizeof(state->rcv.hdr)},
@@ -285,18 +285,28 @@ int send_tcp_state(int fd, void *prefix, size_t prefix_size, struct tcp_state *s
         {state->snd.msg_iov[0].iov_base, state->snd.msg_iov[0].iov_len}
     };
 
-    size_t tot_size = prefix_size + sizeof(state->caddr) + \
+    size_t tot_size = prefix_size + sizeof(type) + sizeof(state->caddr) + \
                       sizeof(state->rcv.hdr) + state->rcv.msg_iov[0].iov_len + \
                       sizeof(state->snd.hdr) + state->snd.msg_iov[0].iov_len;
 
     struct msghdr hdr = {
         .msg_iov = iov,
-        .msg_iovlen = 6
+        .msg_iovlen = 7
     };
 
     if ((sent = sendmsg(fd, &hdr, 0)) != tot_size) {
         perror("Error sendmsging");
         logerr("Wrote %zd/%zu", sent, tot_size);
+    }
+
+    int opt = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &opt, sizeof(opt))) {
+        perror("QUICKACK");
+        return -1;
+    }
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+        perror("TCP_NODELAY");
+        return -1;
     }
     return 0;
 /*

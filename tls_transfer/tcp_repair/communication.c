@@ -3,6 +3,8 @@
 
 #include <stdio.h>
 #include <pthread.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 
 int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_size,
                    pthread_mutex_t *mutex) {
@@ -38,11 +40,21 @@ int send_tsock_msg(int fd, enum msg_type type, void *payload, size_t payload_siz
             perror("mutex unlock");
         }
     }
+    int opt = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+        perror("TCP_NODELAY");
+        return -1;
+    }
+    opt = 1;
+    if (setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &opt, sizeof(opt))) {
+        perror("QUICKACK");
+        return -1;
+    }
     return 0;
 }
 
 
-int create_listening_fd(struct sockaddr_in *addr) {
+int create_listening_fd(struct sockaddr_in *addr, bool quickack) {
 
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) {
@@ -53,6 +65,19 @@ int create_listening_fd(struct sockaddr_in *addr) {
     if (setsockopt(fd, SOL_SOCKET, SO_REUSEPORT, &opt, sizeof(opt))) {
         perror("REUSEADDR");
         return -1;
+    }
+    opt = 1;
+    if (quickack) {
+
+        if (setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &opt, sizeof(opt))) {
+            perror("TCP_NODELAY");
+            return -1;
+        }
+        opt = 1;
+        if (setsockopt(fd, IPPROTO_TCP, TCP_QUICKACK, &opt, sizeof(opt))) {
+            perror("QUICKACK");
+            return -1;
+        }
     }
 
     if (bind(fd, (struct sockaddr*)addr, sizeof(*addr)) < 0) {

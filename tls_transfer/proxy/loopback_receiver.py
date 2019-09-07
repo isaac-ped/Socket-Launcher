@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 from __future__ import print_function
 import ctypes as ct
-from bcc import BPF
+from bcc import BPF, DEBUG_PREPROCESSOR
 import socket
 import os
 import struct
@@ -14,7 +14,7 @@ import arpreq
 
 def log(*args, **kwargs):
     return
-    args = [str(time.time())] + list(args)
+    args = ['%.5f' % (time.time())] + list(args)
     print(*args, **kwargs)
 
 def ip2int(addr):
@@ -109,7 +109,7 @@ class LBRecv(object):
         try:
             del self.b['redirect_flows'][flow]
         except:
-            print("Couldn't del flow %s:%d" % (srcaddr, srcport))
+            log("Couldn't del flow %s:%d" % (srcaddr, srcport))
 
     def add_ack(self, dstaddr, dstport, srcport, ack):
         flow = Flow(
@@ -155,6 +155,7 @@ class LBRecv(object):
         lo_iface_fn = self.b.load_func('monitor_lo_ingress', BPF.SCHED_CLS)
 
         lo_idx = ip.link_lookup(ifname = 'lo')[0]
+        print("LO index id " + str(lo_idx))
 
         self.b['loopback'][ct.c_uint32(0)] = ct.c_int(lo_idx)
 
